@@ -175,7 +175,7 @@ if (evalWithHash.length) {
   console.log(el);
 
   const truncatedTotal = evalAll.filter(e => e.truncated).length;
-  if (truncatedTotal) console.log(`  ${truncatedTotal} evaluate(s) had output truncated (PLAYGUARD_EVAL_COMPACT=${EVAL_COMPACT_THRESHOLD ?? 8000})`);
+  if (truncatedTotal) console.log(`  ${truncatedTotal} evaluate(s) had output truncated (PLAYGUARD_EVAL_COMPACT=${process.env.PLAYGUARD_EVAL_COMPACT ?? 8000})`);
 }
 
 // ── Figma optimizer analytics ──────────────────────────────────────────────

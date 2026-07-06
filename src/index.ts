@@ -3,11 +3,22 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { ListToolsRequestSchema, CallToolRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { fileURLToPath } from "url";
 import { resolve, dirname } from "path";
 import { createHash } from "crypto";
-import { appendFileSync, mkdirSync } from "fs";
+import { appendFile, mkdirSync } from "fs";
 import { load as yamlLoad } from "js-yaml";
+
+type ToolArgs = Record<string, unknown>;
+type ContentItem = { type?: string; text?: string; data?: string };
+
+// Splits a command-line string on spaces, respecting "..."/'...' quoting so
+// paths like `--storage-state "C:/path with spaces/state.json"` survive.
+export function splitArgs(s: string): string[] {
+  const parts = s.match(/"[^"]*"|'[^']*'|\S+/g) ?? [];
+  return parts.map(a => (a[0] === '"' || a[0] === "'") ? a.slice(1, -1) : a);
+}
 
 const SCREENSHOTS = process.env.PLAYGUARD_SCREENSHOTS ?? "warn"; // block | warn | allow | redirect
 // ponytail: compact on by default — strips non-interactive lines, set =false to get raw snapshots
@@ -19,30 +30,37 @@ const EVAL_COMPACT_THRESHOLD = parseInt(process.env.PLAYGUARD_EVAL_COMPACT ?? "8
 const FIGMA_MCP_CMD = process.env.FIGMA_MCP_CMD; // undefined = Figma disabled
 const FIGMA_CACHE_TTL = parseInt(process.env.FIGMA_CACHE_TTL ?? "0"); // ms; 0 = off
 const FIGMA_SVG_REFS = process.env.FIGMA_SVG_REFS !== "false"; // default on: replace inline SVG with lightweight refs
+// Some Figma MCPs (e.g. Framelink figma-developer-mcp) pre-simplify to YAML/markdown text
+// instead of raw REST-API JSON, so optimizeFigmaResponse's modules never fire on them —
+// this is the fallback that still saves tokens on that path. chars; 0 = off
+const FIGMA_TEXT_COMPACT = parseInt(process.env.FIGMA_TEXT_COMPACT ?? "8000");
 
 const __dir = dirname(fileURLToPath(import.meta.url));
 
 const LOG_DIR = resolve(__dir, "..", "logs");
 mkdirSync(LOG_DIR, { recursive: true });
+let logWriteFailed = false;
 function logCall(tool: string, ms: number, err: boolean, extra?: object) {
   const line = JSON.stringify({ ts: Date.now(), tool, ms, err, ...extra });
-  try { appendFileSync(resolve(LOG_DIR, `${new Date().toISOString().slice(0, 10)}.ndjson`), line + "\n"); } catch {}
+  appendFile(resolve(LOG_DIR, `${new Date().toISOString().slice(0, 10)}.ndjson`), line + "\n", (e) => {
+    if (e && !logWriteFailed) { logWriteFailed = true; process.stderr.write(`[PlayGuard] analytics log write failed, disabling further warnings: ${e}\n`); }
+  });
 }
 
 const localBin = resolve(__dir, "..", "node_modules", ".bin",
   process.platform === "win32" ? "playwright-mcp.cmd" : "playwright-mcp");
 
 const rawCmd = process.env.PLAYWRIGHT_MCP_CMD ?? localBin;
-const extraArgs = process.env.PLAYWRIGHT_MCP_ARGS?.split(" ") ?? [];
+const extraArgs = process.env.PLAYWRIGHT_MCP_ARGS ? splitArgs(process.env.PLAYWRIGHT_MCP_ARGS) : [];
 const [PW_CMD, PW_ARGS]: [string, string[]] = process.platform === "win32"
   ? ["cmd", ["/c", rawCmd, ...extraArgs]]
   : [rawCmd, extraArgs];
 
-const figmaExtraArgs = process.env.FIGMA_MCP_ARGS?.split(" ") ?? [];
+const figmaExtraArgs = process.env.FIGMA_MCP_ARGS ? splitArgs(process.env.FIGMA_MCP_ARGS) : [];
 const [FIGMA_CMD, FIGMA_ARGS]: [string, string[]] = FIGMA_MCP_CMD
   ? process.platform === "win32"
     ? ["cmd", ["/c", FIGMA_MCP_CMD, ...figmaExtraArgs]]
-    : (() => { const p = FIGMA_MCP_CMD.split(" "); return [p[0], [...p.slice(1), ...figmaExtraArgs]] as [string, string[]]; })()
+    : (() => { const p = splitArgs(FIGMA_MCP_CMD); return [p[0], [...p.slice(1), ...figmaExtraArgs]] as [string, string[]]; })()
   : ["", []];
 
 const DEAD_RE = /Target.*closed|Browser.*closed|page.*closed|connect ECONNREFUSED|crashed|Navigation failed because page|Protocol error.*Target/i;
@@ -72,28 +90,53 @@ let reviving: Promise<Client> | null = null;
 let lastUrl = "";
 
 // Snapshot cache — cleared whenever a MUTATING tool succeeds
-let snapHash: string | null = null;
-let snapTs = 0;
-let snapCompact: string | null = null;
-let snapRawBytes = 0;
-let snapPrefetched = false; // was cache last populated by prefetch?
+export interface SnapState {
+  hash: string | null;
+  ts: number;
+  compact: string | null;
+  rawBytes: number;
+  prefetched: boolean; // was cache last populated by prefetch?
+  lines: Set<string> | null;
+  url: string;
+  withoutAction: number;
+}
+export const emptySnapState: SnapState = {
+  hash: null, ts: 0, compact: null, rawBytes: 0,
+  prefetched: false, lines: null, url: "", withoutAction: 0,
+};
+let snapState: SnapState = { ...emptySnapState };
 
 const DELTA_THRESHOLD = parseFloat(process.env.PLAYGUARD_DELTA_THRESHOLD ?? "0.4");
 const DELTA_ENABLED = process.env.PLAYGUARD_DELTA !== "false";
-
-let snapLines: Set<string> | null = null;
-let snapUrl = "";
-let snapWithoutAction = 0;
 const HINT_THRESHOLD = parseInt(process.env.PLAYGUARD_HINT_THRESHOLD ?? "4");
 
+// ponytail: generic TTL cache — evalCache and figmaCache both need the same
+// get-with-ttl + clear-whole-map-when-full shape, so it's written once.
+export function ttlCache<T>(maxEntries: number) {
+  const map = new Map<string, { result: T; ts: number }>();
+  return {
+    get(key: string, ttlMs: number): T | undefined {
+      const hit = map.get(key);
+      return hit && Date.now() - hit.ts < ttlMs ? hit.result : undefined;
+    },
+    set(key: string, result: T): void {
+      if (map.size >= maxEntries) map.clear();
+      map.set(key, { result, ts: Date.now() });
+    },
+    clear(): void { map.clear(); },
+  };
+}
+
 // Eval deduplication cache — keyed by hash(url + script), TTL = EVAL_CACHE_TTL ms
-const evalCache = new Map<string, { result: Awaited<ReturnType<Client["callTool"]>>; ts: number }>();
+// ponytail: unbounded long-running sessions would grow this forever; cap by size instead of an LRU
+const CACHE_MAX_ENTRIES = 500;
+const evalCache = ttlCache<Awaited<ReturnType<Client["callTool"]>>>(CACHE_MAX_ENTRIES);
 
 // ── Figma upstream state ───────────────────────────────────────────────────────
 let figmaConn: Client | null = null;
 let figmaPending: Promise<Client> | null = null;
 const figmaToolNames = new Set<string>();
-const figmaCache = new Map<string, { result: unknown; ts: number }>();
+const figmaCache = ttlCache<unknown>(CACHE_MAX_ENTRIES);
 
 function hashContent(content: Array<{ text?: string }>): string {
   return createHash("sha256")
@@ -187,7 +230,7 @@ async function revive(): Promise<Client> {
     conn = null;
     // Dead session's snapshot cache is stale — clear it so the next snapshot rebuilds
     // instead of returning UNCHANGED against a tree from the crashed page.
-    snapHash = null; snapLines = null; snapCompact = null; snapWithoutAction = 0; snapPrefetched = false;
+    snapState = { ...emptySnapState };
     const c = await spawnConn();
     conn = c;
     if (lastUrl) await c.callTool({ name: "browser_navigate", arguments: { url: lastUrl } }).catch(() => {});
@@ -196,7 +239,7 @@ async function revive(): Promise<Client> {
   return reviving;
 }
 
-function dead(v: unknown): boolean {
+export function dead(v: unknown): boolean {
   return DEAD_RE.test(v instanceof Error ? v.message : String(v));
 }
 
@@ -204,14 +247,98 @@ function dead(v: unknown): boolean {
 function cacheSnapshot(content: Array<{ text?: string }>, fromPrefetch = false): { text: string; rawBytes: number; keptBytes: number } {
   const summary = compactSnap(content);
   const newLines = summary.text.split("\n").filter(l => l.includes("[ref=") || STRUCTURAL_RE.test(l));
-  snapHash = hashContent(content);
-  snapLines = new Set(newLines);
-  snapUrl = lastUrl;
-  snapTs = Date.now();
-  snapCompact = summary.text;
-  snapRawBytes = summary.rawBytes;
-  snapPrefetched = fromPrefetch;
+  snapState = {
+    hash: hashContent(content), lines: new Set(newLines), url: lastUrl,
+    ts: Date.now(), compact: summary.text, rawBytes: summary.rawBytes,
+    prefetched: fromPrefetch, withoutAction: snapState.withoutAction,
+  };
   return summary;
+}
+
+export interface SnapshotMeta {
+  cacheHit: boolean;
+  prefetchHit?: boolean;
+  delta: boolean;
+  deltaAdded?: number;
+  deltaRemoved?: number;
+  savedBytes?: number;
+  rawBytes?: number;
+  keptBytes?: number;
+  hinted: boolean;
+  snapCount: number;
+}
+
+export interface SnapshotDecision {
+  responseText: string;
+  state: SnapState;
+  meta: SnapshotMeta;
+}
+
+export interface SnapshotOptions {
+  deltaEnabled: boolean;
+  deltaThreshold: number;
+  hintThreshold: number;
+  compact: boolean;
+}
+
+// Pure decision logic for browser_snapshot: UNCHANGED (cache hit) vs delta vs full compact.
+// Kept side-effect-free (state in, state out) so cache/delta behavior is unit-testable
+// without a live Playwright connection.
+export function decideSnapshot(
+  content: Array<{ text?: string }>,
+  state: SnapState,
+  currentUrl: string,
+  opts: SnapshotOptions,
+): SnapshotDecision {
+  const hash = hashContent(content);
+
+  if (state.hash && hash === state.hash) {
+    const withoutAction = state.withoutAction + 1;
+    const header = state.compact!.split("\n")[0];
+    return {
+      responseText: `[PlayGuard: UNCHANGED since ${Date.now() - state.ts}ms ago] ${header}`,
+      state: { ...state, withoutAction },
+      meta: { cacheHit: true, prefetchHit: state.prefetched || undefined, delta: false, savedBytes: state.rawBytes, hinted: false, snapCount: withoutAction },
+    };
+  }
+
+  const summary = compactSnap(content);
+  const newLines = summary.text.split("\n").filter(l => l.includes("[ref=") || STRUCTURAL_RE.test(l));
+  const newSet = new Set(newLines);
+
+  if (opts.deltaEnabled && state.lines && state.url === currentUrl) {
+    const added = newLines.filter(l => !state.lines!.has(l));
+    const removed = [...state.lines].filter(l => !newSet.has(l));
+    const ratio = (added.length + removed.length) / (newLines.length || 1);
+
+    if (ratio < opts.deltaThreshold) {
+      const withoutAction = state.withoutAction + 1;
+      const deltaText = [
+        `[PlayGuard delta: +${added.length} added, ${removed.length} removed, ~${Math.round((1 - ratio) * 100)}% saved]`,
+        added.length ? "ADDED:\n" + added.map(l => "  " + l.trim()).join("\n") : "",
+        removed.length ? "REMOVED:\n" + removed.map(l => "  " + l.trim()).join("\n") : "",
+      ].filter(Boolean).join("\n");
+      return {
+        responseText: deltaText,
+        state: { hash, lines: newSet, url: currentUrl, ts: Date.now(), compact: summary.text, rawBytes: summary.rawBytes, prefetched: false, withoutAction },
+        meta: { cacheHit: false, delta: true, deltaAdded: added.length, deltaRemoved: removed.length, hinted: false, snapCount: withoutAction },
+      };
+    }
+  }
+
+  const hinted = opts.hintThreshold > 0 && state.withoutAction >= opts.hintThreshold;
+  let finalText = opts.compact ? summary.text : content.map((c) => c.text ?? "").join("");
+  if (hinted) {
+    const interactiveRefs = newLines.slice(0, 5).map(l => l.trim()).join("\n  ");
+    finalText = `[PlayGuard hint: ${state.withoutAction} snapshots without action. Interactive elements available:\n  ${interactiveRefs}]\n` + finalText;
+  }
+  const withoutAction = state.withoutAction + 1;
+
+  return {
+    responseText: finalText,
+    state: { hash, lines: newSet, url: currentUrl, ts: Date.now(), compact: summary.text, rawBytes: summary.rawBytes, prefetched: false, withoutAction },
+    meta: { cacheHit: false, delta: false, rawBytes: summary.rawBytes, keptBytes: summary.keptBytes, hinted, snapCount: withoutAction },
+  };
 }
 
 // ponytail: fire-and-forget — races don't matter, worst case next snapshot call is a miss
@@ -349,12 +476,12 @@ const server = new Server(
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   const result = await getConn().then((c) => c.listTools());
   if (SCREENSHOTS === "redirect") {
-    const shot = (result.tools as any[])?.find((t: any) => t.name === "browser_take_screenshot");
+    const shot = (result.tools as Tool[]).find((t) => t.name === "browser_take_screenshot");
     if (shot) {
       shot.description = (shot.description ?? "") +
         "\n[PlayGuard] Returns a snapshot by default (cheaper, structured). Pass {visual:true} if you need actual pixels (colors, layout bugs, visual glitches).";
       if (shot.inputSchema?.properties) {
-        (shot.inputSchema.properties as any).visual = {
+        (shot.inputSchema.properties as Record<string, unknown>).visual = {
           type: "boolean",
           description: "Set true to get a real screenshot instead of a snapshot.",
         };
@@ -364,8 +491,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
   if (FIGMA_MCP_CMD) {
     try {
       const figmaResult = await getFigmaConn().then(c => c.listTools());
-      figmaResult.tools.forEach((t: any) => figmaToolNames.add(t.name));
-      (result.tools as any[]).push(...figmaResult.tools);
+      (figmaResult.tools as Tool[]).forEach((t) => figmaToolNames.add(t.name));
+      (result.tools as Tool[]).push(...(figmaResult.tools as Tool[]));
     } catch (e) {
       process.stderr.write(`[PlayGuard] Figma MCP listTools failed: ${e}\n`);
     }
@@ -382,10 +509,10 @@ server.setRequestHandler(CallToolRequestSchema, async ({ params: { name, argumen
     const t0f = Date.now();
     const cacheKey = name + "\0" + JSON.stringify(args);
     if (FIGMA_CACHE_TTL > 0) {
-      const hit = figmaCache.get(cacheKey);
-      if (hit && Date.now() - hit.ts < FIGMA_CACHE_TTL) {
-        logCall(name, 0, false, { figma: true, cacheHit: true, fileKey: (args as any).fileKey, nodeId: (args as any).nodeId });
-        return hit.result as Awaited<ReturnType<Client["callTool"]>>;
+      const hit = figmaCache.get(cacheKey, FIGMA_CACHE_TTL);
+      if (hit !== undefined) {
+        logCall(name, 0, false, { figma: true, cacheHit: true, fileKey: (args as ToolArgs).fileKey, nodeId: (args as ToolArgs).nodeId });
+        return hit as Awaited<ReturnType<Client["callTool"]>>;
       }
     }
     try {
@@ -393,12 +520,14 @@ server.setRequestHandler(CallToolRequestSchema, async ({ params: { name, argumen
       const r = await c.callTool({ name, arguments: args });
       let out = r;
       let figmaStats: FigmaOptStats | undefined;
+      let textTruncated = false;
+      let textFullChars: number | undefined;
       // Why the response wasn't optimized — surfaces the upstream/format mismatch
       // (Framelink defaults to YAML; this optimizer expects raw REST-API JSON) instead
       // of swallowing it. If this is consistently set, the optimizer is a no-op.
       let parseSkip: "no-json-item" | "parse-error" | undefined;
       if (!r.isError) {
-        const textItem = (r.content as Array<{ type?: string; text?: string }>)
+        const textItem = (r.content as ContentItem[])
           .find(c => c.type === "text" && c.text && c.text.trim().length > 0);
         if (textItem?.text) {
           try {
@@ -419,14 +548,35 @@ server.setRequestHandler(CallToolRequestSchema, async ({ params: { name, argumen
           parseSkip = "no-json-item";
         }
         if (parseSkip) process.stderr.write(`[PlayGuard] figma optimizer skipped (${parseSkip}) for ${name} — upstream not raw JSON?\n`);
-        if (FIGMA_CACHE_TTL > 0) figmaCache.set(cacheKey, { result: out, ts: Date.now() });
+
+        // Fallback compaction: whatever text is about to go out (raw upstream text, or the
+        // module 1-4 output), cap it the same way browser_evaluate output is capped. This is
+        // what actually saves tokens for upstreams whose format the optimizer can't parse.
+        if (FIGMA_TEXT_COMPACT > 0) {
+          const firstItem = (out.content as ContentItem[])[0];
+          if (firstItem?.type === "text" && firstItem.text && firstItem.text.length > FIGMA_TEXT_COMPACT) {
+            const fullLen = firstItem.text.length;
+            textTruncated = true; textFullChars = fullLen;
+            out = {
+              ...out,
+              content: [
+                { type: "text", text: `[PlayGuard: figma output truncated (${fullLen}→${FIGMA_TEXT_COMPACT} chars)]\n` + firstItem.text.slice(0, FIGMA_TEXT_COMPACT) },
+                ...(out.content as any[]).slice(1),
+              ],
+            };
+          }
+        }
+
+        if (FIGMA_CACHE_TTL > 0) figmaCache.set(cacheKey, out);
       }
       logCall(name, Date.now() - t0f, !!r.isError, {
         figma: true,
-        fileKey: (args as any).fileKey,
-        nodeId: (args as any).nodeId,
+        fileKey: (args as ToolArgs).fileKey,
+        nodeId: (args as ToolArgs).nodeId,
         cacheHit: false,
         parseSkip,
+        textTruncated: textTruncated || undefined,
+        textFullChars,
         ...(figmaStats ? {
           inBytes: figmaStats.inBytes,
           outBytes: figmaStats.outBytes,
@@ -445,22 +595,22 @@ server.setRequestHandler(CallToolRequestSchema, async ({ params: { name, argumen
       });
       return out;
     } catch (e) {
-      logCall(name, Date.now() - t0f, true, { figma: true, fileKey: (args as any).fileKey, error: String(e) });
+      logCall(name, Date.now() - t0f, true, { figma: true, fileKey: (args as ToolArgs).fileKey, error: String(e) });
       throw e;
     }
   }
 
   // ── Screenshot → snapshot redirect ─────────────────────────────────────────
-  if (name === "browser_take_screenshot" && SCREENSHOTS === "redirect" && !(args as any).visual) {
-    if (snapHash && snapCompact && Date.now() - snapTs < 10_000) {
+  if (name === "browser_take_screenshot" && SCREENSHOTS === "redirect" && !(args as ToolArgs).visual) {
+    if (snapState.hash && snapState.compact && Date.now() - snapState.ts < 10_000) {
       logCall(name, Date.now() - t0, false, { url, redirected: true, cacheHit: true });
-      return { content: [{ type: "text", text: "[PlayGuard: snapshot served instead of screenshot (cached). Call with {visual:true} for actual pixels.]\n" + snapCompact }] };
+      return { content: [{ type: "text", text: "[PlayGuard: snapshot served instead of screenshot (cached). Call with {visual:true} for actual pixels.]\n" + snapState.compact }] };
     }
     try {
       const c = await getConn();
       const r = await c.callTool({ name: "browser_snapshot", arguments: {} });
       if (!r.isError) {
-        const summary = cacheSnapshot(r.content as Array<{ text?: string }>);
+        const summary = cacheSnapshot(r.content as ContentItem[]);
         logCall(name, Date.now() - t0, false, { url, redirected: true, cacheHit: false, rawBytes: summary.rawBytes, keptBytes: summary.keptBytes });
         return { content: [{ type: "text", text: "[PlayGuard: snapshot served instead of screenshot. Call with {visual:true} for actual pixels.]\n" + summary.text }] };
       }
@@ -484,14 +634,14 @@ server.setRequestHandler(CallToolRequestSchema, async ({ params: { name, argumen
   let evalKey: string | undefined;
   let scriptHash: string | undefined;
   if (name === "browser_evaluate") {
-    const script = (args as any).code ?? (args as any).expression ?? JSON.stringify(args);
+    const script = String((args as ToolArgs).code ?? (args as ToolArgs).expression ?? JSON.stringify(args));
     scriptHash = createHash("sha256").update(script).digest("hex").slice(0, 8);
     if (EVAL_CACHE_TTL > 0) {
       evalKey = createHash("sha256").update(lastUrl + "\0" + script).digest("hex").slice(0, 16);
-      const hit = evalCache.get(evalKey);
-      if (hit && Date.now() - hit.ts < EVAL_CACHE_TTL) {
+      const hit = evalCache.get(evalKey, EVAL_CACHE_TTL);
+      if (hit !== undefined) {
         logCall(name, 0, false, { url, evalCacheHit: true, scriptHash });
-        return hit.result;
+        return hit;
       }
     }
   }
@@ -507,70 +657,19 @@ server.setRequestHandler(CallToolRequestSchema, async ({ params: { name, argumen
 
       if (!r.isError) {
         if (name === "browser_snapshot") {
-          const content = r.content as Array<{ text?: string }>;
-          const hash = hashContent(content);
-
-          if (snapHash && hash === snapHash) {
-            snapWithoutAction++;
-            const header = snapCompact!.split("\n")[0];
-            return {
-              content: [{
-                type: "text",
-                text: `[PlayGuard: UNCHANGED since ${Date.now() - snapTs}ms ago] ${header}`,
-              }],
-              _savedBytes: snapRawBytes,
-              _prefetchHit: snapPrefetched,
-            } as Awaited<ReturnType<Client["callTool"]>>;
-          }
-
-          const summary = compactSnap(content);
-          const newLines = summary.text.split("\n").filter(l => l.includes("[ref=") || STRUCTURAL_RE.test(l));
-          const newSet = new Set(newLines);
-
-          if (DELTA_ENABLED && snapLines && snapUrl === lastUrl) {
-            const added = newLines.filter(l => !snapLines!.has(l));
-            const removed = [...snapLines].filter(l => !newSet.has(l));
-            const ratio = (added.length + removed.length) / (newLines.length || 1);
-
-            if (ratio < DELTA_THRESHOLD) {
-              snapHash = hash; snapLines = newSet; snapUrl = lastUrl;
-              snapTs = Date.now(); snapCompact = summary.text; snapRawBytes = summary.rawBytes;
-              snapPrefetched = false;
-              const saved = Math.round((1 - ratio) * 100);
-              const deltaText = [
-                `[PlayGuard delta: +${added.length} added, ${removed.length} removed, ~${saved}% saved]`,
-                added.length ? "ADDED:\n" + added.map(l => "  " + l.trim()).join("\n") : "",
-                removed.length ? "REMOVED:\n" + removed.map(l => "  " + l.trim()).join("\n") : "",
-              ].filter(Boolean).join("\n");
-              snapWithoutAction++;
-              return { content: [{ type: "text", text: deltaText }], _delta: true, _deltaAdded: added.length, _deltaRemoved: removed.length, _snapCount: snapWithoutAction } as Awaited<ReturnType<Client["callTool"]>>;
-            }
-          }
-
-          snapHash = hash; snapLines = newSet; snapUrl = lastUrl;
-          snapTs = Date.now(); snapCompact = summary.text; snapRawBytes = summary.rawBytes;
-          snapPrefetched = false;
-
-          let finalText = COMPACT ? summary.text : content.map((c) => c.text ?? "").join("");
-
-          if (HINT_THRESHOLD > 0 && snapWithoutAction >= HINT_THRESHOLD) {
-            const interactiveRefs = newLines.slice(0, 5).map(l => l.trim()).join("\n  ");
-            finalText = `[PlayGuard hint: ${snapWithoutAction} snapshots without action. Interactive elements available:\n  ${interactiveRefs}]\n` + finalText;
-          }
-
-          const hinted = HINT_THRESHOLD > 0 && snapWithoutAction >= HINT_THRESHOLD;
-          snapWithoutAction++;
+          const decision = decideSnapshot(r.content as ContentItem[], snapState, lastUrl, {
+            deltaEnabled: DELTA_ENABLED, deltaThreshold: DELTA_THRESHOLD,
+            hintThreshold: HINT_THRESHOLD, compact: COMPACT,
+          });
+          snapState = decision.state;
           return {
-            content: [{ type: "text", text: finalText }],
-            _rawBytes: summary.rawBytes,
-            _keptBytes: summary.keptBytes,
-            _hinted: hinted,
-            _snapCount: snapWithoutAction,
+            content: [{ type: "text", text: decision.responseText }],
+            _snapMeta: decision.meta,
           } as Awaited<ReturnType<Client["callTool"]>>;
         }
 
         if (MUTATING.has(name)) {
-          snapHash = null; snapLines = null; snapCompact = null; snapWithoutAction = 0; snapPrefetched = false;
+          snapState = { ...emptySnapState };
         }
         if (EVAL_INVALIDATING.has(name)) {
           evalCache.clear();
@@ -596,13 +695,13 @@ server.setRequestHandler(CallToolRequestSchema, async ({ params: { name, argumen
   let evalOutputBytes: number | undefined;
   let evalTruncated: true | undefined;
   if (name === "browser_evaluate" && !result.isError) {
-    if (evalKey && EVAL_CACHE_TTL > 0) evalCache.set(evalKey, { result, ts: Date.now() });
+    if (evalKey && EVAL_CACHE_TTL > 0) evalCache.set(evalKey, result);
     if (EVAL_COMPACT_THRESHOLD > 0) {
-      const text = (result.content as Array<{ text?: string }>).map(c => c.text ?? "").join("");
+      const text = (result.content as ContentItem[]).map(c => c.text ?? "").join("");
       evalOutputBytes = text.length;
       if (text.length > EVAL_COMPACT_THRESHOLD) {
         evalTruncated = true;
-        (result as any).content = [{
+        (result as unknown as { content: ContentItem[] }).content = [{
           type: "text",
           text: `[PlayGuard: eval output truncated (${text.length}→${EVAL_COMPACT_THRESHOLD} chars)]\n` + text.slice(0, EVAL_COMPACT_THRESHOLD),
         }];
@@ -611,28 +710,25 @@ server.setRequestHandler(CallToolRequestSchema, async ({ params: { name, argumen
   }
 
   // ── Build logCall extra fields ─────────────────────────────────────────────
-  const r = result as typeof result & {
-    _rawBytes?: number; _keptBytes?: number; _savedBytes?: number;
-    _delta?: boolean; _deltaAdded?: number; _deltaRemoved?: number;
-    _hinted?: boolean; _snapCount?: number; _prefetchHit?: boolean;
-  };
+  const r = result as typeof result & { _snapMeta?: SnapshotMeta };
 
   let extra: Record<string, unknown> = { url };
   if (wasRetried) extra.retried = true;
 
   if (name === "browser_snapshot") {
+    const m = r._snapMeta;
     extra = {
       ...extra,
-      cacheHit: r._savedBytes !== undefined,
-      prefetchHit: r._savedBytes !== undefined ? (r._prefetchHit || undefined) : undefined,
-      delta: r._delta ?? false,
-      deltaAdded: r._deltaAdded,
-      deltaRemoved: r._deltaRemoved,
-      savedBytes: r._savedBytes,
-      rawBytes: r._rawBytes,
-      keptBytes: r._keptBytes,
-      hinted: r._hinted ?? false,
-      snapCount: r._snapCount,
+      cacheHit: m?.cacheHit ?? false,
+      prefetchHit: m?.prefetchHit,
+      delta: m?.delta ?? false,
+      deltaAdded: m?.deltaAdded,
+      deltaRemoved: m?.deltaRemoved,
+      savedBytes: m?.savedBytes,
+      rawBytes: m?.rawBytes,
+      keptBytes: m?.keptBytes,
+      hinted: m?.hinted ?? false,
+      snapCount: m?.snapCount,
     };
   } else if (name === "browser_evaluate") {
     extra = { ...extra, scriptHash, outputBytes: evalOutputBytes, truncated: evalTruncated };
@@ -646,12 +742,18 @@ server.setRequestHandler(CallToolRequestSchema, async ({ params: { name, argumen
   return result;
 });
 
-if (FIGMA_MCP_CMD) {
+// One retry on startup: a transient spawn failure would otherwise leave figmaToolNames
+// empty forever, silently disabling Figma routing for the rest of the process lifetime.
+function initFigmaTools(attempt = 1): void {
   getFigmaConn()
     .then(c => c.listTools())
-    .then(({ tools }) => (tools as any[]).forEach(t => figmaToolNames.add(t.name)))
-    .catch(e => process.stderr.write(`[PlayGuard] Figma MCP init: ${e}\n`));
+    .then(({ tools }) => (tools as Tool[]).forEach(t => figmaToolNames.add(t.name)))
+    .catch(e => {
+      process.stderr.write(`[PlayGuard] Figma MCP init failed (attempt ${attempt}): ${e}\n`);
+      if (attempt === 1) setTimeout(() => initFigmaTools(2), 3000);
+    });
 }
+if (FIGMA_MCP_CMD) initFigmaTools();
 
 // PLAYGUARD_NO_SERVE=1 lets tests import the pure helpers without opening the stdio transport.
 if (process.env.PLAYGUARD_NO_SERVE !== "1") {

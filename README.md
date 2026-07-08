@@ -103,9 +103,9 @@ PlayGuard intercepts Figma MCP responses and runs them through an optimization p
 [PlayGuard figma: -68% (284.0KB→91.0KB)]
 ```
 
-> **Note:** The optimizer expects raw Figma REST API JSON (`document.children`, `componentId`, `fillGeometry`). If your Figma MCP upstream returns pre-simplified or YAML output (e.g. Framelink `figma-developer-mcp`), the optimizer is a no-op — `parseSkip` is written to stderr and to the NDJSON log.
+> **Note:** Modules 1–4 and 6 target raw Figma REST API JSON (`document.children`, `componentId`, `fillGeometry`). If your Figma MCP upstream returns pre-simplified YAML (e.g. Framelink `figma-developer-mcp`), those modules find nothing to strip — but `inBytes`/`outBytes` are still measured from the actual upstream response text, so the automatic YAML→JSON reformatting (typically ~2x on its own) and Module 5's metadata trim both still count as real savings. `parseSkip` in the NDJSON log means the response body couldn't be parsed as JSON or YAML at all, not that the optimizer no-op'd.
 
-**Module 1 — Metadata Cleaner:** Removes fields irrelevant to layout: `createdAt`, `updatedAt`, `creator`, `pluginData`, `sharedPluginData`, `exportSettings`, `reactions`, `interactions`, etc.
+**Module 1 — Metadata Cleaner:** Removes fields irrelevant to layout: `createdAt`, `updatedAt`, `creator`, `thumbnailUrl`, `pluginData`, `sharedPluginData`, `exportSettings`, `reactions`, `interactions`, etc.
 
 **Module 2 — Invisible Layer Pruner:** Recursively removes nodes where `visible === false` or `opacity === 0`.
 
@@ -118,6 +118,8 @@ PlayGuard intercepts Figma MCP responses and runs them through an optimization p
 **Module 4 — SVG Refs:** Replaces inline SVG geometry (`fillGeometry`) with `{ "_svgRef": "nodeId" }`. The agent gets the shape identifier without thousands of path coordinates.
 
 **Module 6 — Layout Compressor:** Removes absolute `x`/`y` from nodes inside Auto Layout containers — they are redundant because position is determined by `layoutMode`, `gap`, and `padding`.
+
+**Module 5 — Top-Level Metadata Trim:** Drops `metadata.thumbnailUrl` (a signed, single-use preview URL) and `metadata.lastModified` from pre-simplified upstream shapes like Framelink's `{ metadata, nodes, globalVars }` — fields Module 1 can't reach because it only walks `document`/`children`, not a sibling `metadata` key.
 
 ---
 

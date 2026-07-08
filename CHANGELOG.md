@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.2.1 — 2026-07-08
+
+Fixed the Figma optimizer reporting 0% savings on every upstream that
+pre-simplifies to YAML (e.g. Framelink `figma-developer-mcp`), even though
+real bytes were being saved.
+
+### Fixed
+- `optimizeFigmaResponse()` measured `inBytes` from `JSON.stringify(parsed)` —
+  i.e. *after* parsing — instead of the raw upstream response text. Upstreams
+  that return indented YAML are routinely ~2x heavier than the compact JSON
+  PlayGuard emits, so that saving was real but invisible in every stat and
+  log line (`pct` always read 0). `optimizeFigmaResponse()` now takes the raw
+  byte count as a second argument and the call site passes the original
+  response text's length. Confirmed against live Figma API responses: a file
+  that previously logged `0%` now logs `28%`–`51%` depending on payload size.
+
+### Added
+- **Module 5 — Top-level metadata trim:** drops `metadata.thumbnailUrl` /
+  `metadata.lastModified` from pre-simplified upstream shapes (Framelink's
+  `{ metadata, nodes, globalVars }`), which existing Module 1 can't reach
+  since it only walks `document`/`children`, never a sibling `metadata` key.
+- `thumbnailUrl` added to `FIGMA_DROP_KEYS`, so Module 1 now also strips the
+  same field when it's top-level (raw Figma REST API shape, e.g. the official
+  `@figma/mcp`).
+
 ## 0.2.0 — 2026-07-06
 
 Follow-up pass after a codebase review: fixed two real bugs, removed duplicated

@@ -377,7 +377,7 @@ async function getFigmaConn(): Promise<Client> {
 // ── Figma Optimizer ────────────────────────────────────────────────────────────
 
 const FIGMA_DROP_KEYS = new Set([
-  "createdAt", "updatedAt", "lastModified", "creator", "version",
+  "createdAt", "updatedAt", "lastModified", "creator", "version", "thumbnailUrl",
   "pluginData", "sharedPluginData", "exportSettings",
   "reactions", "interactions", "documentationLinks",
   "transitionNodeID", "transitionDuration", "transitionEasing",
@@ -439,13 +439,25 @@ function deduplicateComponents(node: any, seen: Map<string, true>, st: FigmaOptS
   return result;
 }
 
-export function optimizeFigmaResponse(parsed: any): { data: any; stats: FigmaOptStats } {
+// rawInBytes = size of the upstream response text before parsing. Upstreams that
+// pre-simplify to indented YAML (e.g. Framelink figma-developer-mcp) are ~2x heavier
+// than the compact JSON we emit, purely from formatting — a real saving that's invisible
+// if inBytes is measured from JSON.stringify(parsed) instead of the original text.
+export function optimizeFigmaResponse(parsed: any, rawInBytes?: number): { data: any; stats: FigmaOptStats } {
   const st: FigmaOptStats = {
-    inBytes: Buffer.byteLength(JSON.stringify(parsed)), outBytes: 0,
+    inBytes: rawInBytes ?? Buffer.byteLength(JSON.stringify(parsed)), outBytes: 0,
     metaKeysDeleted: 0, invisiblePruned: 0,
     svgRefsReplaced: 0, instancesCollapsed: 0,
     uniqueComponents: 0, layoutCoordsRemoved: 0,
   };
+  // Module 5: drop metadata fields no agent needs (signed preview URL, timestamps)
+  // ponytail: only top-level metadata — not walked by walkNodes, which only recurses
+  // into document/children, never the sibling "metadata" key Framelink's shape uses.
+  if (parsed?.metadata) {
+    for (const k of ["thumbnailUrl", "lastModified"]) {
+      if (k in parsed.metadata) { delete parsed.metadata[k]; st.metaKeysDeleted++; }
+    }
+  }
   // Module 1: strip metadata
   walkNodes(parsed, n => { for (const k of FIGMA_DROP_KEYS) if (k in n) { delete n[k]; st.metaKeysDeleted++; } });
   // Module 2: prune invisible layers
@@ -533,7 +545,7 @@ server.setRequestHandler(CallToolRequestSchema, async ({ params: { name, argumen
           try {
             const raw = textItem.text;
             const parsed = raw.trimStart().startsWith("{") ? JSON.parse(raw) : yamlLoad(raw);
-            const { data, stats: st } = optimizeFigmaResponse(parsed);
+            const { data, stats: st } = optimizeFigmaResponse(parsed, Buffer.byteLength(raw));
             figmaStats = st;
             const pct = Math.round((1 - st.outBytes / st.inBytes) * 100);
             out = {

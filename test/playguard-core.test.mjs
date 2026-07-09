@@ -20,6 +20,11 @@ test("dead() does not flag ordinary tool errors", () => {
   assert.ok(!dead("Timeout waiting for selector"));
 });
 
+test("dead() recognizes the navigation-failed and protocol-error patterns", () => {
+  assert.ok(dead("Navigation failed because page was closed!"));
+  assert.ok(dead("Protocol error (Runtime.evaluate): Target closed"));
+});
+
 // ── splitArgs() — env-var arg parsing for PLAYWRIGHT_MCP_ARGS/FIGMA_MCP_ARGS ─
 test("splitArgs splits on spaces and keeps quoted args with spaces intact", () => {
   assert.deepEqual(splitArgs("--headless --browser firefox"), ["--headless", "--browser", "firefox"]);
@@ -32,6 +37,12 @@ test("splitArgs splits on spaces and keeps quoted args with spaces intact", () =
 
 test("splitArgs returns an empty array for an empty string", () => {
   assert.deepEqual(splitArgs(""), []);
+});
+
+test("splitArgs keeps an unclosed quote literal instead of mangling the token", () => {
+  // Regression: `"unclosed` used to lose its first AND last character (→ `unclose`).
+  assert.deepEqual(splitArgs('--foo "unclosed'), ["--foo", '"unclosed']);
+  assert.deepEqual(splitArgs('""'), [""]); // empty quoted arg still unwraps
 });
 
 // ── ttlCache() — shared by evalCache and figmaCache ──────────────────────────
@@ -104,6 +115,50 @@ test("decideSnapshot: cache hit reports savedBytes equal to the cached raw snaps
   const d2 = decideSnapshot(makeContent([1, 2, 3]), d1.state, URL, opts);
   // bench/analyze.mjs sums this field as "Bytes saved by cache" — must track the real raw size.
   assert.equal(d2.meta.savedBytes, d1.state.rawBytes);
+});
+
+// Distinct roles so collapseRuns (≥5 look-alike lines) never folds these away
+// before the delta diff sees them.
+const roleContent = (roles) => [{ text: roles.map((r, i) => `- ${r} "x" [ref=${i + 1}]`).join("\n") }];
+
+test("decideSnapshot: a removed-only change is reported as a delta with REMOVED lines", () => {
+  const d1 = decideSnapshot(roleContent(["button", "link", "textbox", "checkbox", "combobox", "radio"]), emptySnapState, URL, opts);
+  const d2 = decideSnapshot(roleContent(["button", "link", "textbox", "checkbox", "combobox"]), d1.state, URL, opts);
+  assert.equal(d2.meta.delta, true);
+  assert.equal(d2.meta.deltaAdded, 0);
+  assert.equal(d2.meta.deltaRemoved, 1);
+  assert.match(d2.responseText, /REMOVED:/);
+  assert.match(d2.responseText, /radio/);
+});
+
+test("decideSnapshot: change ratio exactly at the threshold falls back to a full snapshot", () => {
+  // threshold is strict (<): (1 added + 1 removed) / 5 lines = 0.4 → full, not delta
+  const d1 = decideSnapshot(roleContent(["button", "link", "textbox", "checkbox", "combobox"]), emptySnapState, URL, opts);
+  const d2 = decideSnapshot(roleContent(["button", "link", "textbox", "checkbox", "radio"]), d1.state, URL, opts);
+  assert.equal(d2.meta.delta, false);
+  assert.equal(d2.meta.cacheHit, false);
+});
+
+test("decideSnapshot: compact=false returns the raw snapshot text without a PlayGuard header", () => {
+  const content = makeContent([1, 2, 3]);
+  const d = decideSnapshot(content, emptySnapState, URL, { ...opts, deltaEnabled: false, compact: false });
+  assert.equal(d.responseText, content[0].text);
+});
+
+test("decideSnapshot: hintThreshold=0 disables hints entirely", () => {
+  const state = { ...emptySnapState, withoutAction: 99 };
+  const d = decideSnapshot(makeContent([1, 2, 3]), state, URL, { ...opts, hintThreshold: 0 });
+  assert.equal(d.meta.hinted, false);
+  assert.doesNotMatch(d.responseText, /PlayGuard hint/);
+});
+
+test("decideSnapshot: UNCHANGED cache hits still advance the without-action counter", () => {
+  // Idle polling via cache hits must eventually trigger the hint, not mask it.
+  const d1 = decideSnapshot(makeContent([1, 2, 3]), emptySnapState, URL, opts);
+  const d2 = decideSnapshot(makeContent([1, 2, 3]), d1.state, URL, opts);
+  assert.equal(d1.meta.snapCount, 1);
+  assert.equal(d2.meta.snapCount, 2);
+  assert.equal(d2.state.withoutAction, 2);
 });
 
 test("decideSnapshot: hints at interactive elements after hintThreshold snapshots without action", () => {

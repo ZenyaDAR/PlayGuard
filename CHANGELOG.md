@@ -1,5 +1,65 @@
 # Changelog
 
+## 0.3.0 — 2026-07-09
+
+The `FIGMA_TEXT_COMPACT` fallback (when the optimized Figma tree is still too
+big to send) used to slice the stringified JSON at a fixed character offset.
+That's a blind cut: anything after the offset — later sibling frames, later
+pages, `globalVars` — was silently dropped with no way for the agent to know
+it was ever there. Also picks up four smaller correctness fixes that had
+landed locally but were never released or logged.
+
+### Fixed
+- `splitArgs()` (used for `PLAYWRIGHT_MCP_ARGS`/`FIGMA_MCP_ARGS`) lost the
+  first *and* last character of any argument with an unclosed quote, e.g.
+  `--foo "unclosed` became `--foo unclose`. Quotes are now stripped only
+  when they actually pair up; an unclosed quote survives literally.
+- `collapseRuns()` printed a literal `undefined` in the fold marker for a run
+  of look-alike lines with no `[ref=]` in them (e.g. adjacent blank lines
+  left behind after `compactSnap` filters text). Runs without refs now print
+  `[×N more similar lines]` instead of `[×N more similar elements, refs
+  undefined–undefined]`.
+- `deduplicateComponents()` (Figma optimizer Module 3) could pick an
+  *overridden* instance as the base definition other instances collapse
+  into as a `_ref`. Since refs don't carry the base's overrides, every
+  collapsed instance would silently inherit visual changes that only
+  applied to the original override. Only a clean (no-override) instance can
+  become a base now.
+- PlayGuard reported a hardcoded `"0.1.0"` as its own version to both the
+  MCP client handshake (`spawnConn`/`spawnFigmaConn`) and the `Server`
+  constructor, regardless of the actual released version. `VERSION` is now
+  read from `package.json` at startup and used in all three places.
+
+### Added
+- **Module 7 — Budget Trim** (`budgetTrimFigma()` / `budgetTrimNode()`):
+  replaces the character slice with a structural trim of the parsed tree.
+  Budget is allocated depth-first, proportional to each branch's own size; a
+  branch that doesn't fit collapses to an `{id, name, type, _stub:true,
+  _omittedChildren}` marker instead of vanishing, so every top-level section
+  stays visible in the response and the agent can re-fetch a stubbed branch
+  by its `id`. Handles both the raw REST API shape (`document.children`) and
+  Framelink's pre-simplified `{ metadata, nodes, globalVars }` shape. The
+  output is always valid JSON — no more slicing mid-structure.
+  - Falls back to the old boundary-safe text slice only when the response
+    never parsed into a tree at all (`parseSkip` — genuinely malformed
+    upstream), where there's no structure left to trim.
+  - NDJSON log gains a `textStubbed` field; the truncation banner now reports
+    how many sections were stubbed, e.g. `figma output truncated (12066→9800
+    chars, 3 section(s) stubbed)`.
+- Regression tests for the four fixes above, plus `dead()` coverage for the
+  `Navigation failed`/`Protocol error` patterns and two more `decideSnapshot()`
+  cases (removed-only delta, change-ratio exactly at the delta threshold) in
+  `test/playguard-core.test.mjs` and `test/playguard.test.mjs`.
+
+### Changed
+- `FIGMA_TEXT_COMPACT` default raised `8000` → `10000` chars, since the new
+  trim makes larger budgets cheap to raise without losing whole sections.
+- `PLAYGUARD_EVAL_COMPACT` default raised `8000` → `10000` chars, to keep the
+  two text-compaction limits consistent. `bench/analyze.mjs`'s report line had
+  its own hardcoded copy of the old `8000` default for display purposes — it
+  now shows `"default"` instead of a guessed number when the env var isn't
+  set, so this can't drift out of sync again.
+
 ## 0.2.1 — 2026-07-08
 
 Fixed the Figma optimizer reporting 0% savings on every upstream that

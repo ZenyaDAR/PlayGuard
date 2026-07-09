@@ -175,7 +175,10 @@ if (evalWithHash.length) {
   console.log(el);
 
   const truncatedTotal = evalAll.filter(e => e.truncated).length;
-  if (truncatedTotal) console.log(`  ${truncatedTotal} evaluate(s) had output truncated (PLAYGUARD_EVAL_COMPACT=${process.env.PLAYGUARD_EVAL_COMPACT ?? 8000})`);
+  // ponytail: no guessed fallback number here — analyze.mjs is a separate process reading
+  // logs after the fact, it can't know the running server's compiled-in default, only what
+  // this shell's env says. Avoids a second hardcoded copy of src/index.ts's default drifting.
+  if (truncatedTotal) console.log(`  ${truncatedTotal} evaluate(s) had output truncated (PLAYGUARD_EVAL_COMPACT=${process.env.PLAYGUARD_EVAL_COMPACT ?? "default"})`);
 }
 
 // ── Figma optimizer analytics ──────────────────────────────────────────────

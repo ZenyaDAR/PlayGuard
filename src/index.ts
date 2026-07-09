@@ -7,7 +7,7 @@ import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { fileURLToPath } from "url";
 import { resolve, dirname } from "path";
 import { createHash } from "crypto";
-import { appendFile, mkdirSync } from "fs";
+import { appendFile, mkdirSync, readFileSync } from "fs";
 import { load as yamlLoad } from "js-yaml";
 
 type ToolArgs = Record<string, unknown>;
@@ -17,7 +17,11 @@ type ContentItem = { type?: string; text?: string; data?: string };
 // paths like `--storage-state "C:/path with spaces/state.json"` survive.
 export function splitArgs(s: string): string[] {
   const parts = s.match(/"[^"]*"|'[^']*'|\S+/g) ?? [];
-  return parts.map(a => (a[0] === '"' || a[0] === "'") ? a.slice(1, -1) : a);
+  // Strip quotes only when they actually pair up — an unclosed quote (matched by \S+)
+  // must survive literally instead of losing its first and last characters.
+  return parts.map(a =>
+    a.length >= 2 && ((a[0] === '"' && a.endsWith('"')) || (a[0] === "'" && a.endsWith("'")))
+      ? a.slice(1, -1) : a);
 }
 
 const SCREENSHOTS = process.env.PLAYGUARD_SCREENSHOTS ?? "warn"; // block | warn | allow | redirect
@@ -26,16 +30,18 @@ const COMPACT = process.env.PLAYGUARD_COMPACT !== "false";
 const TOKEN_BUDGET = parseInt(process.env.PLAYGUARD_TOKEN_BUDGET ?? "0"); // 0 = off
 const EVAL_CACHE_TTL = parseInt(process.env.PLAYGUARD_EVAL_CACHE_TTL ?? "500"); // ms; 0 = off
 const PREFETCH_SNAPSHOT = process.env.PLAYGUARD_PREFETCH_SNAPSHOT !== "false"; // default on
-const EVAL_COMPACT_THRESHOLD = parseInt(process.env.PLAYGUARD_EVAL_COMPACT ?? "8000"); // chars; 0 = off
+const EVAL_COMPACT_THRESHOLD = parseInt(process.env.PLAYGUARD_EVAL_COMPACT ?? "10000"); // chars; 0 = off
 const FIGMA_MCP_CMD = process.env.FIGMA_MCP_CMD; // undefined = Figma disabled
 const FIGMA_CACHE_TTL = parseInt(process.env.FIGMA_CACHE_TTL ?? "0"); // ms; 0 = off
 const FIGMA_SVG_REFS = process.env.FIGMA_SVG_REFS !== "false"; // default on: replace inline SVG with lightweight refs
 // Some Figma MCPs (e.g. Framelink figma-developer-mcp) pre-simplify to YAML/markdown text
 // instead of raw REST-API JSON, so optimizeFigmaResponse's modules never fire on them —
 // this is the fallback that still saves tokens on that path. chars; 0 = off
-const FIGMA_TEXT_COMPACT = parseInt(process.env.FIGMA_TEXT_COMPACT ?? "8000");
+const FIGMA_TEXT_COMPACT = parseInt(process.env.FIGMA_TEXT_COMPACT ?? "10000");
 
 const __dir = dirname(fileURLToPath(import.meta.url));
+
+const VERSION: string = JSON.parse(readFileSync(resolve(__dir, "..", "package.json"), "utf8")).version;
 
 const LOG_DIR = resolve(__dir, "..", "logs");
 mkdirSync(LOG_DIR, { recursive: true });
@@ -197,7 +203,10 @@ export function collapseRuns(lines: string[]): string[] {
     if (run >= COLLAPSE_MIN) {
       out.push(...lines.slice(i, i + 3));
       const refs = lines.slice(i + 3, j).map(l => l.match(/\[ref=(\d+)\]/)?.[1]).filter(Boolean);
-      out.push(`  [×${run - 3} more similar elements, refs ${refs[0]}–${refs.at(-1)}]`);
+      // A run without refs (e.g. blank lines left adjacent after filtering) has no range to show.
+      out.push(refs.length
+        ? `  [×${run - 3} more similar elements, refs ${refs[0]}–${refs.at(-1)}]`
+        : `  [×${run - 3} more similar lines]`);
     } else {
       out.push(...lines.slice(i, j));
     }
@@ -208,7 +217,7 @@ export function collapseRuns(lines: string[]): string[] {
 
 async function spawnConn(): Promise<Client> {
   const t = new StdioClientTransport({ command: PW_CMD, args: PW_ARGS });
-  const c = new Client({ name: "playguard", version: "0.1.0" });
+  const c = new Client({ name: "playguard", version: VERSION });
   await c.connect(t);
   return c;
 }
@@ -359,7 +368,7 @@ async function spawnFigmaConn(): Promise<Client> {
     if (k.startsWith("FIGMA_") && v) env[k] = v;
   }
   const t = new StdioClientTransport({ command: FIGMA_CMD, args: FIGMA_ARGS, env: Object.keys(env).length ? env : undefined });
-  const c = new Client({ name: "playguard-figma", version: "0.1.0" });
+  const c = new Client({ name: "playguard-figma", version: VERSION });
   await c.connect(t);
   return c;
 }
@@ -431,8 +440,13 @@ function deduplicateComponents(node: any, seen: Map<string, true>, st: FigmaOptS
         ...(node.overrides?.length ? { overrides: node.overrides } : {}),
       };
     }
-    seen.set(compId, true);
-    st.uniqueComponents++;
+    // Only a clean instance becomes the base definition: refs point at the first
+    // full instance, so an overridden base would leak its overrides into every ref.
+    // ponytail: a component whose every instance is overridden never dedupes.
+    if (!node.overrides?.length) {
+      seen.set(compId, true);
+      st.uniqueComponents++;
+    }
   }
   const result = { ...node };
   if (Array.isArray(result.children)) result.children = deduplicateComponents(result.children, seen, st);
@@ -480,8 +494,59 @@ export function optimizeFigmaResponse(parsed: any, rawInBytes?: number): { data:
   return { data: parsed, stats: st };
 }
 
+const STUB_BUDGET_MIN = 80; // chars; below this a branch is always stubbed, never partially expanded
+
+// Module 7: when the optimized tree still exceeds FIGMA_TEXT_COMPACT, trim it structurally
+// instead of slicing the stringified text — a char slice chops mid-JSON and silently drops
+// whatever came later in the tree (later sibling frames, later pages). Budget is allocated
+// depth-first, proportional to each branch's own size; a branch that doesn't fit collapses to
+// an {id,name,type} stub instead of vanishing, so the agent can see it exists and re-fetch it
+// by id in a follow-up call.
+function budgetTrimNode(node: any, budget: number, stats: { stubbed: number }): any {
+  if (!node || typeof node !== "object") return node;
+  const kids = Array.isArray(node.children) ? node.children : undefined;
+  if (!kids || !kids.length) return node;
+
+  const shallow = { ...node, children: undefined };
+  const shallowSize = JSON.stringify(shallow).length;
+  const size = shallowSize + JSON.stringify(kids).length;
+  if (size <= budget) return node;
+
+  const childBudget = budget - shallowSize;
+  if (childBudget < kids.length * STUB_BUDGET_MIN) {
+    stats.stubbed++;
+    return { id: node.id, name: node.name, type: node.type, _stub: true, _omittedChildren: kids.length };
+  }
+  const sizes = kids.map((k: any) => JSON.stringify(k).length);
+  const total = sizes.reduce((a: number, b: number) => a + b, 0) || 1;
+  return {
+    ...shallow,
+    children: kids.map((k: any, i: number) =>
+      budgetTrimNode(k, Math.max(Math.floor((childBudget * sizes[i]) / total), STUB_BUDGET_MIN), stats)),
+  };
+}
+
+export function budgetTrimFigma(data: any, budgetChars: number): { data: any; stubbed: number } {
+  const stats = { stubbed: 0 };
+  const shallow = { ...data };
+  const fixedSize = Object.keys(shallow)
+    .filter((k) => k !== "document" && k !== "nodes")
+    .reduce((s, k) => s + JSON.stringify({ [k]: shallow[k] }).length, 0);
+  const remaining = Math.max(budgetChars - fixedSize, STUB_BUDGET_MIN);
+
+  if (shallow.document) {
+    shallow.document = budgetTrimNode(shallow.document, remaining, stats);
+  } else if (Array.isArray(shallow.nodes)) {
+    const sizes = shallow.nodes.map((n: any) => JSON.stringify(n).length);
+    const total = sizes.reduce((a: number, b: number) => a + b, 0) || 1;
+    shallow.nodes = shallow.nodes.map((n: any, i: number) =>
+      budgetTrimNode(n, Math.max(Math.floor((remaining * sizes[i]) / total), STUB_BUDGET_MIN), stats));
+  }
+  return { data: shallow, stubbed: stats.stubbed };
+}
+
 const server = new Server(
-  { name: "playguard", version: "0.1.0" },
+  { name: "playguard", version: VERSION },
   { capabilities: { tools: {} } },
 );
 
@@ -534,6 +599,8 @@ server.setRequestHandler(CallToolRequestSchema, async ({ params: { name, argumen
       let figmaStats: FigmaOptStats | undefined;
       let textTruncated = false;
       let textFullChars: number | undefined;
+      let textStubbed = 0;
+      let parsedData: any;
       // Why the response wasn't optimized — surfaces the upstream/format mismatch
       // (Framelink defaults to YAML; this optimizer expects raw REST-API JSON) instead
       // of swallowing it. If this is consistently set, the optimizer is a no-op.
@@ -547,6 +614,7 @@ server.setRequestHandler(CallToolRequestSchema, async ({ params: { name, argumen
             const parsed = raw.trimStart().startsWith("{") ? JSON.parse(raw) : yamlLoad(raw);
             const { data, stats: st } = optimizeFigmaResponse(parsed, Buffer.byteLength(raw));
             figmaStats = st;
+            parsedData = data;
             const pct = Math.round((1 - st.outBytes / st.inBytes) * 100);
             out = {
               ...r,
@@ -561,18 +629,33 @@ server.setRequestHandler(CallToolRequestSchema, async ({ params: { name, argumen
         }
         if (parseSkip) process.stderr.write(`[PlayGuard] figma optimizer skipped (${parseSkip}) for ${name} — upstream not raw JSON?\n`);
 
-        // Fallback compaction: whatever text is about to go out (raw upstream text, or the
-        // module 1-4 output), cap it the same way browser_evaluate output is capped. This is
-        // what actually saves tokens for upstreams whose format the optimizer can't parse.
+        // Fallback compaction: when the optimized tree is still too big, trim it
+        // structurally (Module 7 / budgetTrimFigma) instead of slicing raw text — every
+        // branch keeps at least an {id,name,type} stub, so the agent can see a section
+        // exists and re-fetch it by id instead of losing it outright. Only falls back to
+        // a boundary-safe text slice when the response never parsed into a tree at all
+        // (parseSkip — genuinely malformed upstream, nothing to trim structurally).
         if (FIGMA_TEXT_COMPACT > 0) {
           const firstItem = (out.content as ContentItem[])[0];
           if (firstItem?.type === "text" && firstItem.text && firstItem.text.length > FIGMA_TEXT_COMPACT) {
             const fullLen = firstItem.text.length;
             textTruncated = true; textFullChars = fullLen;
+            let newText: string;
+            if (parsedData !== undefined) {
+              const { data: trimmed, stubbed } = budgetTrimFigma(parsedData, FIGMA_TEXT_COMPACT);
+              textStubbed = stubbed;
+              newText = JSON.stringify(trimmed);
+            } else {
+              const nl = firstItem.text.lastIndexOf("\n", FIGMA_TEXT_COMPACT);
+              newText = firstItem.text.slice(0, nl > 0 ? nl : FIGMA_TEXT_COMPACT);
+            }
             out = {
               ...out,
               content: [
-                { type: "text", text: `[PlayGuard: figma output truncated (${fullLen}→${FIGMA_TEXT_COMPACT} chars)]\n` + firstItem.text.slice(0, FIGMA_TEXT_COMPACT) },
+                {
+                  type: "text",
+                  text: `[PlayGuard: figma output truncated (${fullLen}→${newText.length} chars${textStubbed ? `, ${textStubbed} section(s) stubbed` : ""})]\n` + newText,
+                },
                 ...(out.content as any[]).slice(1),
               ],
             };
@@ -589,6 +672,7 @@ server.setRequestHandler(CallToolRequestSchema, async ({ params: { name, argumen
         parseSkip,
         textTruncated: textTruncated || undefined,
         textFullChars,
+        textStubbed: textStubbed || undefined,
         ...(figmaStats ? {
           inBytes: figmaStats.inBytes,
           outBytes: figmaStats.outBytes,

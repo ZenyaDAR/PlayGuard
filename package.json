@@ -1,6 +1,6 @@
 {
   "name": "playguard",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "MCP proxy for Playwright and Figma — token optimization, auto session recovery, and unified routing",
   "keywords": ["mcp", "playwright", "figma", "ai-agent", "claude", "browser-automation"],
   "license": "MIT",

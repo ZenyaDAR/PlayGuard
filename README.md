@@ -136,6 +136,8 @@ PlayGuard intercepts Figma MCP responses and runs them through an optimization p
 
 ## Installation
 
+No install needed — run via `npx`. For local development instead:
+
 ```bash
 git clone https://github.com/ZenyaDAR/PlayGuard.git
 cd playguard
@@ -157,8 +159,8 @@ Add to `~/.claude/claude_desktop_config.json` (or your project's `.claude/settin
 {
   "mcpServers": {
     "playguard": {
-      "command": "node",
-      "args": ["/path/to/playguard/dist/index.js"],
+      "command": "npx",
+      "args": ["-y", "playguard"],
       "env": {
         "PLAYGUARD_SCREENSHOTS": "redirect"
       }
@@ -173,8 +175,8 @@ Add to `~/.claude/claude_desktop_config.json` (or your project's `.claude/settin
 {
   "mcpServers": {
     "playguard": {
-      "command": "node",
-      "args": ["/path/to/playguard/dist/index.js"],
+      "command": "npx",
+      "args": ["-y", "playguard"],
       "env": {
         "PLAYGUARD_SCREENSHOTS": "redirect",
         "FIGMA_MCP_CMD": "npx @figma/mcp",
@@ -187,6 +189,8 @@ Add to `~/.claude/claude_desktop_config.json` (or your project's `.claude/settin
 ```
 
 Do **not** add Playwright MCP separately — PlayGuard spawns it automatically from its bundled dependency.
+
+Running from a local clone instead? Use `"command": "node", "args": ["/path/to/playguard/dist/index.js"]`.
 
 ### Claude Desktop
 

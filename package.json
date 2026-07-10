@@ -1,17 +1,31 @@
 {
   "name": "playguard",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "MCP proxy for Playwright and Figma — token optimization, auto session recovery, and unified routing",
   "keywords": ["mcp", "playwright", "figma", "ai-agent", "claude", "browser-automation"],
   "license": "MIT",
+  "author": "Yevhenii Dziza",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ZenyaDAR/PlayGuard.git"
+  },
   "engines": { "node": ">=18" },
   "type": "module",
+  "bin": {
+    "playguard": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
     "bench": "node bench/run.mjs",
     "analyze": "node bench/analyze.mjs",
-    "test": "tsc && node --test"
+    "test": "tsc && node --test",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.13.0",

@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -7,7 +8,7 @@ import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { fileURLToPath } from "url";
 import { resolve, dirname } from "path";
 import { createHash } from "crypto";
-import { appendFile, mkdirSync, readFileSync } from "fs";
+import { appendFile, mkdirSync, readFileSync, existsSync } from "fs";
 import { load as yamlLoad } from "js-yaml";
 
 type ToolArgs = Record<string, unknown>;
@@ -56,10 +57,12 @@ function logCall(tool: string, ms: number, err: boolean, extra?: object) {
   });
 }
 
-const localBin = resolve(__dir, "..", "node_modules", ".bin",
-  process.platform === "win32" ? "playwright-mcp.cmd" : "playwright-mcp");
-
-const rawCmd = process.env.PLAYWRIGHT_MCP_CMD ?? localBin;
+const binName = process.platform === "win32" ? "playwright-mcp.cmd" : "playwright-mcp";
+const localBin = resolve(__dir, "..", "node_modules", ".bin", binName);
+// When installed via npm/npx, dependencies are hoisted — localBin points inside
+// the package's own node_modules which doesn't exist. Fall back to the bare
+// command name which npm places on PATH.
+const rawCmd = process.env.PLAYWRIGHT_MCP_CMD ?? (existsSync(localBin) ? localBin : binName);
 const extraArgs = process.env.PLAYWRIGHT_MCP_ARGS ? splitArgs(process.env.PLAYWRIGHT_MCP_ARGS) : [];
 const [PW_CMD, PW_ARGS]: [string, string[]] = process.platform === "win32"
   ? ["cmd", ["/c", rawCmd, ...extraArgs]]

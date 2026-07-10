@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.4.1 — 2026-07-11
+
+### Added
+- Published to npm — install via `npx playguard` instead of a git clone.
+- `publish.yml`: GitHub Action that publishes to npm on a GitHub Release or a
+  pushed `v*` tag, skipping if that version is already published.
+- `ci.yml` now also runs `npm publish --dry-run` on every push/PR so a broken
+  package (missing files, bad `package.json`) fails CI before it fails a release.
+
+### Fixed
+- Bin resolution (`localBin`) now falls back to the bare command name on PATH
+  when installed via npm — the previous hardcoded `node_modules/.bin` path
+  only worked from a local clone.
+- `bin` field path normalized (dropped a leading `./` npm silently rewrites
+  at publish time).
+
 ## 0.4.0 — 2026-07-11
 
 Field data (167 logged calls over two days) showed the structural Figma

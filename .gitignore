@@ -3,3 +3,5 @@ dist/
 logs/
 .omc/
 *.ndjson
+IDEAS.md
+.playwright-mcp/

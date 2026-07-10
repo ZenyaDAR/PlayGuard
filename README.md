@@ -103,7 +103,7 @@ PlayGuard intercepts Figma MCP responses and runs them through an optimization p
 [PlayGuard figma: -68% (284.0KB→91.0KB)]
 ```
 
-> **Note:** Modules 1–4 and 6 target raw Figma REST API JSON (`document.children`, `componentId`, `fillGeometry`). If your Figma MCP upstream returns pre-simplified YAML (e.g. Framelink `figma-developer-mcp`), those modules find nothing to strip — but `inBytes`/`outBytes` are still measured from the actual upstream response text, so the automatic YAML→JSON reformatting (typically ~2x on its own) and Module 5's metadata trim both still count as real savings. `parseSkip` in the NDJSON log means the response body couldn't be parsed as JSON or YAML at all, not that the optimizer no-op'd.
+> **Note:** Modules 1–4 and 6 target raw Figma REST API JSON (`document.children`, `componentId`, `fillGeometry`). If your Figma MCP upstream returns pre-simplified YAML (e.g. Framelink `figma-developer-mcp`), those modules find nothing to strip — Module 8 handles that shape instead — and `inBytes`/`outBytes` are still measured from the actual upstream response text, so the automatic YAML→JSON reformatting (typically ~2x on its own) and Module 5's metadata trim both still count as real savings. `parseSkip` in the NDJSON log means the response body couldn't be parsed as JSON or YAML at all, not that the optimizer no-op'd.
 
 **Module 1 — Metadata Cleaner:** Removes fields irrelevant to layout: `createdAt`, `updatedAt`, `creator`, `thumbnailUrl`, `pluginData`, `sharedPluginData`, `exportSettings`, `reactions`, `interactions`, etc.
 
@@ -120,6 +120,8 @@ PlayGuard intercepts Figma MCP responses and runs them through an optimization p
 **Module 6 — Layout Compressor:** Removes absolute `x`/`y` from nodes inside Auto Layout containers — they are redundant because position is determined by `layoutMode`, `gap`, and `padding`.
 
 **Module 5 — Top-Level Metadata Trim:** Drops `metadata.thumbnailUrl` (a signed, single-use preview URL) and `metadata.lastModified` from pre-simplified upstream shapes like Framelink's `{ metadata, nodes, globalVars }` — fields Module 1 can't reach because it only walks `document`/`children`, not a sibling `metadata` key.
+
+**Module 8 — Framelink Shape Optimizer:** Targets the pre-simplified `{ metadata, nodes[], globalVars.styles }` shape (Framelink `figma-developer-mcp`), where Modules 2/4/6 find nothing to strip. **8a:** sibling subtrees identical except for ids collapse to `{ id, name, _sameAs: firstId }` (repeated cards/icons); structural copies that differ only in text/name/position collapse to the same stub plus a `_textDiff` map. **8b:** no-op layout styles (`{ mode: "none", sizing: {} }`) are dropped from `globalVars.styles` along with node refs to them. **8c:** float noise in styles is rounded to 2 decimals (`"1.3999999364217122em"` → `"1.4em"`); node `text` is never touched.
 
 **Module 7 — Budget Trim:** If the optimized tree still exceeds `FIGMA_TEXT_COMPACT`, it's trimmed structurally instead of sliced as text. Budget is allocated depth-first, proportional to each branch's size; a branch that doesn't fit collapses to an `{id, name, type, _stub:true}` marker instead of being silently dropped, so every top-level section stays visible and the agent can re-fetch a stubbed branch by its `id`. Only a genuinely unparseable response (`parseSkip`) falls back to a raw text slice.
 
@@ -220,6 +222,7 @@ Use forward slashes in JSON strings. Spaces in paths do not need escaping:
 | `PLAYGUARD_EVAL_COMPACT` | `10000` | Max characters for eval output. `0` = off |
 | `PLAYWRIGHT_MCP_CMD` | bundled binary | Override the Playwright MCP command |
 | `PLAYWRIGHT_MCP_ARGS` | — | Extra arguments passed to Playwright MCP (space-separated; wrap an argument in `"..."` or `'...'` if it contains a space, e.g. a path) |
+| `PLAYGUARD_LOG_DIR` | `logs/` | Override the NDJSON analytics log directory |
 
 ### Figma
 
@@ -323,7 +326,7 @@ Measures proxy overhead, snapshot vs screenshot size, cache hit rate, and crash 
 npm test
 ```
 
-Covers `collapseRuns`, `compactSnap` (including token budget boundary), the full Figma optimizer pipeline (`optimizeFigmaResponse`), and the structural budget trim (`budgetTrimFigma`) in `test/playguard.test.mjs`, plus `dead()` crash detection, `splitArgs()` quoting, the shared `ttlCache()` helper, and the `decideSnapshot()` cache/delta/hint decision logic in `test/playguard-core.test.mjs`.
+Covers `collapseRuns`, `compactSnap` (including token budget boundary), the full Figma optimizer pipeline (`optimizeFigmaResponse`), and the structural budget trim (`budgetTrimFigma`) in `test/playguard.test.mjs`, plus `dead()` crash detection, `splitArgs()` quoting, the shared `ttlCache()` helper, and the `decideSnapshot()` cache/delta/hint decision logic, and the Module 8 Framelink-shape optimizations in `test/playguard-core.test.mjs`.
 
 CI (GitHub Actions, `.github/workflows/ci.yml`) runs `npm test` on every push and pull request to `main`.
 
@@ -348,7 +351,7 @@ CI (GitHub Actions, `.github/workflows/ci.yml`) runs `npm test` on every push an
 ```
 playguard/
 ├── src/
-│   └── index.ts                    All server logic (~860 lines)
+│   └── index.ts                    All server logic (~980 lines)
 ├── dist/                           Compiled output (generated by npm run build)
 ├── bench/
 │   ├── run.mjs                     Benchmark: latency, token savings, crash recovery

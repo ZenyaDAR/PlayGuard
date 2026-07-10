@@ -3,7 +3,7 @@ import { readdirSync, readFileSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 
-const LOG_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..", "logs");
+const LOG_DIR = process.env.PLAYGUARD_LOG_DIR || resolve(dirname(fileURLToPath(import.meta.url)), "..", "logs");
 
 let files;
 try { files = readdirSync(LOG_DIR).filter(f => f.endsWith(".ndjson")); }
@@ -18,7 +18,9 @@ const entries = files.flatMap(f =>
     .filter(Boolean)
 );
 
-console.log(`\nAnalyzed ${entries.length} calls from ${files.length} log file(s)\n`);
+const instances = new Set(entries.map(e => e.inst).filter(Boolean));
+console.log(`\nAnalyzed ${entries.length} calls from ${files.length} log file(s)${instances.size ? ` across ${instances.size} server instance(s)` : ""}\n`);
+if (instances.size > 1) console.log(`  (caches are per-instance and in-memory — repeat calls in different instances always miss)\n`);
 
 const toTok = b => Math.round(b / 4);
 
@@ -208,12 +210,40 @@ if (figmaEntries.length) {
     ["M3 dedup",     sum("instancesCollapsed"),  `instances collapsed (${sum("uniqueComponents")} unique components)`],
     ["M4 svg refs",  sum("svgRefsReplaced"),     "SVG vectors replaced with refs"],
     ["M6 layout",    sum("layoutCoordsRemoved"), "x/y pairs removed"],
+    ["M8a dup sibs", sum("siblingsCollapsed"),   "duplicate siblings collapsed"],
+    ["M8a+ struct",  sum("structSiblingsCollapsed"), "structural copies collapsed (text diff kept)"],
+    ["M8b styles",   sum("emptyStylesDropped"),  "no-op layout styles dropped"],
+    ["M8c floats",   sum("floatsRounded"),       "float values rounded"],
   ].filter(([, n]) => n > 0);
 
   if (modules.length) {
     console.log("\n  Module breakdown:");
     for (const [label, n, unit] of modules)
       console.log(`    ${label.padEnd(12)}  ${String(n).padStart(6)}  ${unit}`);
+  }
+
+  // Repeat-call cache proof: same argsHash = byte-identical request, so every repeat
+  // is either a cache hit, a cross-instance miss (separate process, separate cache),
+  // or a TTL-expired / cache-disabled miss within one instance.
+  const withArgsHash = figmaEntries.filter(e => e.argsHash && !e.err);
+  if (withArgsHash.length) {
+    const byArgs = {};
+    for (const e of withArgsHash) (byArgs[e.argsHash] ??= []).push(e);
+    const groups = Object.values(byArgs).filter(g => g.length > 1);
+    if (groups.length) {
+      let hits = 0, crossInstance = 0, sameInstanceMiss = 0;
+      const missGaps = [];
+      for (const g of groups) {
+        g.sort((a, b) => a.ts - b.ts);
+        for (let i = 1; i < g.length; i++) {
+          if (g[i].cacheHit) hits++;
+          else if (g[i].inst && g[i].inst !== g[i - 1].inst) crossInstance++;
+          else { sameInstanceMiss++; missGaps.push(Math.round((g[i].ts - g[i - 1].ts) / 1000)); }
+        }
+      }
+      console.log(`\n  Repeat calls (identical args): ${groups.reduce((s, g) => s + g.length - 1, 0)} repeats in ${groups.length} group(s)`);
+      console.log(`    cache hits: ${hits}   cross-instance misses: ${crossInstance}   same-instance misses: ${sameInstanceMiss}${missGaps.length ? ` (gaps: ${missGaps.join("s, ")}s — check FIGMA_CACHE_TTL)` : ""}`);
+    }
   }
 
   // Per-file table
@@ -264,7 +294,8 @@ if (realShots.length) {
     ? (compactSnaps.reduce((s, e) => s + e.keptBytes, 0) / compactSnaps.length / 1024).toFixed(1)
     : "?";
   console.log(`\n── Screenshot size ───────────────────────────────────────`);
-  console.log(`  ${realShots.length} real screenshot(s): avg ${avgShotKB} KB/shot (total ${totalShotKB.toFixed(1)} KB)`);
+  const visualShots = realShots.filter(e => e.visual).length;
+  console.log(`  ${realShots.length} real screenshot(s): avg ${avgShotKB} KB/shot (total ${totalShotKB.toFixed(1)} KB)${visualShots ? `, ${visualShots} explicitly requested pixels ({visual:true})` : ""}`);
   if (avgSnapKB !== "?") console.log(`  Avg snapshot size:  ${avgSnapKB} KB  (${((1 - +avgSnapKB / +avgShotKB) * 100).toFixed(0)}% smaller than screenshot)`);
   if (redirected.length) {
     const savedKB = redirected.reduce((s, e) => s + (e.rawBytes ?? 0), 0) / 1024;

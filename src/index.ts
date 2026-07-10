@@ -43,11 +43,14 @@ const __dir = dirname(fileURLToPath(import.meta.url));
 
 const VERSION: string = JSON.parse(readFileSync(resolve(__dir, "..", "package.json"), "utf8")).version;
 
-const LOG_DIR = resolve(__dir, "..", "logs");
+const LOG_DIR = process.env.PLAYGUARD_LOG_DIR || resolve(__dir, "..", "logs");
 mkdirSync(LOG_DIR, { recursive: true });
+// Random per-process id on every log line: caches are in-memory, so a "miss" on
+// identical args is only a bug if both calls came from the same instance.
+const INSTANCE_ID = Math.random().toString(36).slice(2, 8);
 let logWriteFailed = false;
 function logCall(tool: string, ms: number, err: boolean, extra?: object) {
-  const line = JSON.stringify({ ts: Date.now(), tool, ms, err, ...extra });
+  const line = JSON.stringify({ ts: Date.now(), inst: INSTANCE_ID, tool, ms, err, ...extra });
   appendFile(resolve(LOG_DIR, `${new Date().toISOString().slice(0, 10)}.ndjson`), line + "\n", (e) => {
     if (e && !logWriteFailed) { logWriteFailed = true; process.stderr.write(`[PlayGuard] analytics log write failed, disabling further warnings: ${e}\n`); }
   });
@@ -94,6 +97,10 @@ let conn: Client | null = null;
 let pending: Promise<Client> | null = null;
 let reviving: Promise<Client> | null = null;
 let lastUrl = "";
+// Pushed on every browser_navigate, popped on browser_navigate_back — keeps lastUrl
+// correct for the one other navigation tool we route. Clicks/form submits that navigate
+// still go untracked (Playwright MCP doesn't report the resulting URL in tool output).
+const urlHistory: string[] = [];
 
 // Snapshot cache — cleared whenever a MUTATING tool succeeds
 export interface SnapState {
@@ -301,7 +308,7 @@ export function decideSnapshot(
 ): SnapshotDecision {
   const hash = hashContent(content);
 
-  if (state.hash && hash === state.hash) {
+  if (state.hash && hash === state.hash && state.url === currentUrl) {
     const withoutAction = state.withoutAction + 1;
     const header = state.compact!.split("\n")[0];
     return {
@@ -399,6 +406,7 @@ function walkNodes(node: unknown, fn: (n: Record<string, unknown>) => void): voi
   const n = node as Record<string, unknown>;
   if (Array.isArray(n.children)) walkNodes(n.children, fn);
   if (n.document) walkNodes(n.document, fn);
+  if (Array.isArray(n.nodes)) walkNodes(n.nodes, fn); // Framelink top-level shape
 }
 
 interface FigmaOptStats {
@@ -406,6 +414,8 @@ interface FigmaOptStats {
   metaKeysDeleted: number; invisiblePruned: number;
   svgRefsReplaced: number; instancesCollapsed: number;
   uniqueComponents: number; layoutCoordsRemoved: number;
+  siblingsCollapsed: number; structSiblingsCollapsed: number;
+  emptyStylesDropped: number; floatsRounded: number;
 }
 
 function pruneInvisible(nodes: any[], st: FigmaOptStats): any[] {
@@ -453,6 +463,89 @@ function deduplicateComponents(node: any, seen: Map<string, true>, st: FigmaOptS
   return result;
 }
 
+// Module 8: Framelink-shape ({metadata, nodes[], globalVars.styles}) optimizations.
+// Framelink pre-simplifies upstream, so Modules 2/4/6 never fire on it — the fields they
+// target are already gone. Measured on real responses, what's actually left:
+//   8a: exact-duplicate sibling subtrees (~2%) → collapse to {id, name, _sameAs: firstId}
+//   8a+: structural copies (same tree/styles, different text/name/coords) → same stub
+//        plus _textDiff; on card grids this is the dominant module (up to ~-30% extra)
+//   8b: layout styles that say nothing ({mode:"none", sizing:{}}) plus their node refs (~1%)
+//   8c: float noise in styles ("1.3999999364217122em" → "1.4em") (~1%)
+function roundFloats(v: unknown, st: FigmaOptStats): unknown {
+  if (typeof v === "number" && !Number.isInteger(v)) { st.floatsRounded++; return Math.round(v * 100) / 100; }
+  if (typeof v === "string")
+    return v.replace(/-?\d+\.\d{3,}/g, m => { st.floatsRounded++; return String(Math.round(parseFloat(m) * 100) / 100); });
+  if (Array.isArray(v)) return v.map(x => roundFloats(x, st));
+  if (v && typeof v === "object") {
+    const o = v as Record<string, unknown>;
+    for (const k of Object.keys(o)) o[k] = roundFloats(o[k], st);
+  }
+  return v;
+}
+
+// 8a+ — keys that don't change a subtree's *structure*: per-copy content (text, layer
+// name — designers name grid copies "1".."10") and per-copy position. Everything else
+// (fills, styles, layout refs, types, child shape) stays in the fingerprint, so copies
+// with different colors/styles never collapse. The stub keeps its own id+name, and text
+// differences survive in _textDiff; inner layer names of a collapsed copy are the only loss.
+const STRUCT_IGNORE_KEYS = new Set(["id", "name", "text", "x", "y", "boundingBox", "dimensions"]);
+
+function textsOf(n: any, out: string[] = []): string[] {
+  if (typeof n?.text === "string") out.push(n.text);
+  if (Array.isArray(n?.children)) for (const c of n.children) textsOf(c, out);
+  return out;
+}
+
+function optimizeFramelink(parsed: any, st: FigmaOptStats): void {
+  // 8a — dedupe siblings identical except for ids (id filtered at every depth)
+  const fpOf = (n: unknown) => JSON.stringify(n, (k, v) => (k === "id" ? undefined : v));
+  // 8a+ — same, but also ignoring text/coords: structural copies (card grids, list rows)
+  const structFpOf = (n: unknown) => JSON.stringify(n, (k, v) => (STRUCT_IGNORE_KEYS.has(k) ? undefined : v));
+  const dedupeSiblings = (node: any): void => {
+    if (!Array.isArray(node.children)) return;
+    const seen = new Map<string, any>();
+    const seenStruct = new Map<string, any>();
+    node.children = node.children.map((c: any) => {
+      const fp = fpOf(c);
+      const first = seen.get(fp);
+      if (first) { st.siblingsCollapsed++; return { id: c.id, name: c.name, _sameAs: first.id }; }
+      seen.set(fp, c);
+      const sFirst = seenStruct.get(structFpOf(c));
+      if (sFirst) {
+        // structure identical ⇒ same text-node count/order; diff is keyed by text index in the reference
+        const ref = textsOf(sFirst), own = textsOf(c);
+        const diff: Record<number, string> = {};
+        own.forEach((t, i) => { if (t !== ref[i]) diff[i] = t; });
+        const stub: any = { id: c.id, name: c.name, _sameAs: sFirst.id };
+        if (Object.keys(diff).length) stub._textDiff = diff;
+        if (JSON.stringify(stub).length < JSON.stringify(c).length) {
+          st.structSiblingsCollapsed++;
+          return stub;
+        }
+      } else {
+        seenStruct.set(structFpOf(c), c);
+      }
+      return c;
+    });
+    node.children.forEach(dedupeSiblings);
+  };
+  parsed.nodes.forEach(dedupeSiblings);
+
+  // 8b — drop no-op layout styles and the node refs pointing at them
+  const styles = parsed.globalVars?.styles;
+  if (styles && typeof styles === "object") {
+    const isNoop = (v: any) => v && typeof v === "object" && v.mode === "none" &&
+      Object.entries(v).every(([k, val]) => k === "mode" || (val && typeof val === "object" && !Object.keys(val as object).length));
+    const dropped = new Set<string>();
+    for (const [k, v] of Object.entries(styles)) {
+      if (k.startsWith("layout_") && isNoop(v)) { delete styles[k]; dropped.add(k); st.emptyStylesDropped++; }
+    }
+    if (dropped.size) walkNodes(parsed.nodes, n => { if (dropped.has(n.layout as string)) delete n.layout; });
+    // 8c — styles only: node.text is user content, rounding "3.14159" there would corrupt it
+    roundFloats(styles, st);
+  }
+}
+
 // rawInBytes = size of the upstream response text before parsing. Upstreams that
 // pre-simplify to indented YAML (e.g. Framelink figma-developer-mcp) are ~2x heavier
 // than the compact JSON we emit, purely from formatting — a real saving that's invisible
@@ -463,6 +556,7 @@ export function optimizeFigmaResponse(parsed: any, rawInBytes?: number): { data:
     metaKeysDeleted: 0, invisiblePruned: 0,
     svgRefsReplaced: 0, instancesCollapsed: 0,
     uniqueComponents: 0, layoutCoordsRemoved: 0,
+    siblingsCollapsed: 0, structSiblingsCollapsed: 0, emptyStylesDropped: 0, floatsRounded: 0,
   };
   // Module 5: drop metadata fields no agent needs (signed preview URL, timestamps)
   // ponytail: only top-level metadata — not walked by walkNodes, which only recurses
@@ -490,6 +584,9 @@ export function optimizeFigmaResponse(parsed: any, rawInBytes?: number): { data:
   if (parsed?.document) parsed.document = deduplicateComponents(parsed.document, new Map(), st);
   // Module 6: drop redundant x/y inside Auto Layout containers
   if (parsed?.document) compressLayout(parsed.document, st);
+  // Module 8: Framelink shape — raw REST /nodes responses have nodes as an object map,
+  // Framelink emits an array; the guard keeps this off the REST path.
+  if (Array.isArray(parsed?.nodes) && !parsed?.document) optimizeFramelink(parsed, st);
   st.outBytes = Buffer.byteLength(JSON.stringify(parsed));
   return { data: parsed, stats: st };
 }
@@ -584,11 +681,23 @@ server.setRequestHandler(CallToolRequestSchema, async ({ params: { name, argumen
   // ── Figma MCP routing ──────────────────────────────────────────────────────
   if (FIGMA_MCP_CMD && figmaToolNames.has(name)) {
     const t0f = Date.now();
-    const cacheKey = name + "\0" + JSON.stringify(args);
+    // Normalized key: sorted arg order, and nodeId "39-327" ≡ "39:327" (Figma accepts both,
+    // agents emit both) — otherwise the same logical call misses the cache.
+    const normArgs: ToolArgs = { ...args };
+    if (typeof normArgs.nodeId === "string") normArgs.nodeId = normArgs.nodeId.replace(/-/g, ":");
+    const cacheKey = name + "\0" + JSON.stringify(normArgs, Object.keys(normArgs).sort());
+    // argsHash in every figma log line proves whether two calls were byte-identical —
+    // the difference between "cache is broken" and "the agent varied depth".
+    const argsHash = createHash("sha256").update(cacheKey).digest("hex").slice(0, 8);
+    const figmaLogBase = {
+      figma: true, argsHash,
+      fileKey: (args as ToolArgs).fileKey, nodeId: (args as ToolArgs).nodeId,
+      depth: (args as ToolArgs).depth,
+    };
     if (FIGMA_CACHE_TTL > 0) {
       const hit = figmaCache.get(cacheKey, FIGMA_CACHE_TTL);
       if (hit !== undefined) {
-        logCall(name, 0, false, { figma: true, cacheHit: true, fileKey: (args as ToolArgs).fileKey, nodeId: (args as ToolArgs).nodeId });
+        logCall(name, 0, false, { ...figmaLogBase, cacheHit: true });
         return hit as Awaited<ReturnType<Client["callTool"]>>;
       }
     }
@@ -609,9 +718,14 @@ server.setRequestHandler(CallToolRequestSchema, async ({ params: { name, argumen
         const textItem = (r.content as ContentItem[])
           .find(c => c.type === "text" && c.text && c.text.trim().length > 0);
         if (textItem?.text) {
+          const raw = textItem.text;
+          let parsed: unknown;
           try {
-            const raw = textItem.text;
-            const parsed = raw.trimStart().startsWith("{") ? JSON.parse(raw) : yamlLoad(raw);
+            parsed = raw.trimStart().startsWith("{") ? JSON.parse(raw) : yamlLoad(raw);
+          } catch { parseSkip = "parse-error"; }
+          if (parsed !== undefined) {
+            // Not caught here: a throw inside the optimizer itself is a real bug, not an
+            // upstream format mismatch — let it propagate instead of being mislabeled as parseSkip.
             const { data, stats: st } = optimizeFigmaResponse(parsed, Buffer.byteLength(raw));
             figmaStats = st;
             parsedData = data;
@@ -623,7 +737,7 @@ server.setRequestHandler(CallToolRequestSchema, async ({ params: { name, argumen
                 ...(r.content as any[]).slice(1),
               ],
             };
-          } catch { parseSkip = "parse-error"; }
+          }
         } else {
           parseSkip = "no-json-item";
         }
@@ -665,9 +779,7 @@ server.setRequestHandler(CallToolRequestSchema, async ({ params: { name, argumen
         if (FIGMA_CACHE_TTL > 0) figmaCache.set(cacheKey, out);
       }
       logCall(name, Date.now() - t0f, !!r.isError, {
-        figma: true,
-        fileKey: (args as ToolArgs).fileKey,
-        nodeId: (args as ToolArgs).nodeId,
+        ...figmaLogBase,
         cacheHit: false,
         parseSkip,
         textTruncated: textTruncated || undefined,
@@ -687,11 +799,15 @@ server.setRequestHandler(CallToolRequestSchema, async ({ params: { name, argumen
           instancesCollapsed: figmaStats.instancesCollapsed,
           uniqueComponents: figmaStats.uniqueComponents,
           layoutCoordsRemoved: figmaStats.layoutCoordsRemoved,
+          siblingsCollapsed: figmaStats.siblingsCollapsed,
+          structSiblingsCollapsed: figmaStats.structSiblingsCollapsed,
+          emptyStylesDropped: figmaStats.emptyStylesDropped,
+          floatsRounded: figmaStats.floatsRounded,
         } : {}),
       });
       return out;
     } catch (e) {
-      logCall(name, Date.now() - t0f, true, { figma: true, fileKey: (args as ToolArgs).fileKey, error: String(e) });
+      logCall(name, Date.now() - t0f, true, { ...figmaLogBase, error: String(e) });
       throw e;
     }
   }
@@ -765,16 +881,22 @@ server.setRequestHandler(CallToolRequestSchema, async ({ params: { name, argumen
         }
 
         if (MUTATING.has(name)) {
-          snapState = { ...emptySnapState };
+          // Only invalidate the UNCHANGED/screenshot-redirect shortcuts (both gate on `hash`).
+          // Keep `lines`/`url` so the next browser_snapshot can still delta against pre-action state.
+          snapState = { ...snapState, hash: null, compact: null };
         }
         if (EVAL_INVALIDATING.has(name)) {
           evalCache.clear();
         }
 
         if (name === "browser_navigate") {
+          urlHistory.push(lastUrl);
           lastUrl = (args as { url?: string }).url ?? lastUrl;
           // ponytail: no await — runs in background, worst case next snapshot call misses
           if (PREFETCH_SNAPSHOT) prefetchSnapshot();
+        }
+        if (name === "browser_navigate_back") {
+          lastUrl = urlHistory.pop() ?? lastUrl;
         }
       }
 
@@ -832,6 +954,8 @@ server.setRequestHandler(CallToolRequestSchema, async ({ params: { name, argumen
     const screenshotBytes = (result.content as Array<{ type?: string; data?: string }>)
       .reduce((s, c) => s + (c.data ? Math.round(c.data.length * 3 / 4) : 0), 0);
     if (screenshotBytes > 0) extra.screenshotBytes = screenshotBytes;
+    // Distinguishes "agent explicitly wanted pixels" from "redirect wasn't active".
+    if ((args as ToolArgs).visual) extra.visual = true;
   }
 
   logCall(name, Date.now() - t0, !!result.isError, extra);

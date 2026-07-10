@@ -1,5 +1,69 @@
 # Changelog
 
+## 0.4.0 — 2026-07-11
+
+Field data (167 logged calls over two days) showed the structural Figma
+modules (M2/M3/M4/M6) never fire on Framelink (`figma-developer-mcp`)
+responses: Framelink pre-simplifies to `{metadata, nodes[], globalVars}` and
+has already removed everything those modules target. Measured against real
+responses, the remaining fat is duplicate sibling subtrees, no-op layout
+styles, and float noise.
+
+### Added
+- Figma optimizer Module 8 for the Framelink shape:
+  - **8a** — sibling subtrees identical except for ids collapse to
+    `{id, name, _sameAs: firstId}` (repeated cards/icons).
+  - **8a+** — structural copies (same tree and styles, different text/layer
+    name/position) collapse to the same stub plus a `_textDiff` map, and only
+    when the stub is actually smaller; on card grids this is the dominant
+    module. Copies that differ in styling never collapse.
+  - **8b** — layout styles that say nothing (`{mode:"none", sizing:{}}`) are
+    dropped from `globalVars.styles` together with the node refs to them.
+  - **8c** — float noise in styles is rounded to 2 decimals
+    (`lineHeight: "1.3999999364217122em"` → `"1.4em"`); node `text` is never
+    touched. Real-response effect: −41%/−53% total vs −31%/−34% before.
+- Analytics fields to make the next `npm run analyze` conclusive:
+  - `inst` — random per-process id on every log line (caches are in-memory,
+    so only same-instance repeat misses indicate a problem);
+  - `argsHash` + `depth` on Figma calls — distinguishes "cache is broken"
+    from "the agent varied the arguments";
+  - `visual: true` on screenshots the agent explicitly requested as pixels.
+- `bench/analyze.mjs`: server-instance count, Figma repeat-call cache proof
+  (hits vs cross-instance vs same-instance misses with gaps), M8 module
+  breakdown rows, `{visual:true}` screenshot count.
+
+### Fixed
+- Figma cache key now sorts argument keys and normalizes `nodeId`
+  (`39-327` ≡ `39:327`), so the same logical request no longer misses the
+  cache on formatting differences. The normalization now replaces *every*
+  hyphen, not just the first — a multi-segment `nodeId` used to still miss
+  the cache depending on which form the agent sent.
+- Delta snapshots could never actually fire after an action. Every mutating
+  tool (`browser_click`, `browser_type`, ...) wiped the *entire* snapshot
+  cache — including the line set the delta diff is computed against — so the
+  click-then-snapshot flow the feature exists for always fell back to a full
+  snapshot; delta only ever triggered between two `browser_snapshot` calls
+  with no action in between. Mutating tools now only invalidate the
+  `UNCHANGED`/screenshot-redirect shortcuts (`hash`/`compact`); the line set
+  and URL survive so the next snapshot can still delta against pre-action
+  state. Also added a URL check to the `UNCHANGED` cache-hit branch, closing
+  a latent case where two different pages with a coincidentally identical
+  hash would report `UNCHANGED`.
+- `lastUrl` was only ever updated by explicit `browser_navigate` calls, so
+  `browser_navigate_back` left it pointing at the pre-back URL. On a session
+  crash, `revive()` uses `lastUrl` to restore the page — meaning a crash
+  after navigating back silently restored the wrong page. A small
+  `urlHistory` stack now pushes on `browser_navigate` and pops on
+  `browser_navigate_back` to keep `lastUrl` correct. (Navigation via clicked
+  links or form submits is still untracked — Playwright MCP doesn't report
+  the resulting URL in tool output.)
+- The Figma optimizer's `try/catch` around parsing also wrapped the call to
+  `optimizeFigmaResponse()` itself, so a genuine bug in the optimizer was
+  swallowed and logged as `parseSkip: "parse-error"` — indistinguishable
+  from "upstream sent malformed JSON/YAML." Parsing and optimization are now
+  in separate try scopes; an optimizer exception propagates and logs as a
+  real error instead of being misdiagnosed as an upstream format issue.
+
 ## 0.3.0 — 2026-07-09
 
 The `FIGMA_TEXT_COMPACT` fallback (when the optimized Figma tree is still too

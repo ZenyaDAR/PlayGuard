@@ -6,7 +6,7 @@ process.env.PLAYGUARD_NO_SERVE = "1";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-const { dead, splitArgs, ttlCache, decideSnapshot, emptySnapState, optimizeFigmaResponse } = await import("../dist/index.js");
+const { dead, splitArgs, ttlCache, decideSnapshot, emptySnapState, optimizeFigmaResponse, looksLikeLoading } = await import("../dist/index.js");
 
 // ── dead() — crash/disconnect detection that drives session revival ─────────
 test("dead() recognizes known crash/disconnect error text", () => {
@@ -291,4 +291,118 @@ test("decideSnapshot: hints at interactive elements after hintThreshold snapshot
   assert.equal(d2.meta.hinted, false);
   assert.equal(d3.meta.hinted, true);
   assert.match(d3.responseText, /PlayGuard hint/);
+});
+
+// ── Snapshot Filters (section, around, depth) ────────────────────────────────
+test("filterSnapshot: section filter matches and returns the subtree", () => {
+  const content = [{ text: `
+- document
+  - main
+    - heading "Title"
+    - form "Login"
+      - textbox "Email" [ref=1]
+      - textbox "Password" [ref=2]
+  - footer
+    - link "Terms" [ref=3]
+`.trim() }];
+  
+  const d1 = decideSnapshot(content, emptySnapState, URL, { ...opts, section: "form" });
+  assert.match(d1.responseText, /section: form/);
+  assert.match(d1.responseText, /form "Login"/);
+  assert.match(d1.responseText, /\[ref=1\]/);
+  assert.match(d1.responseText, /\[ref=2\]/);
+  assert.doesNotMatch(d1.responseText, /footer/);
+  assert.doesNotMatch(d1.responseText, /heading/);
+});
+
+test("filterSnapshot: around filter climbs to landmark parent and returns subtree", () => {
+  const content = [{ text: `
+- document
+  - main
+    - section "Widgets"
+      - button "A" [ref=10]
+      - button "B" [ref=11]
+      - button "C" [ref=12]
+  - footer
+    - link "Terms" [ref=3]
+`.trim() }];
+
+  const d1 = decideSnapshot(content, emptySnapState, URL, { ...opts, around: 11 });
+  assert.match(d1.responseText, /around: 11/);
+  assert.match(d1.responseText, /section "Widgets"/);
+  assert.match(d1.responseText, /\[ref=10\]/);
+  assert.match(d1.responseText, /\[ref=11\]/);
+  assert.match(d1.responseText, /\[ref=12\]/);
+  assert.doesNotMatch(d1.responseText, /footer/);
+});
+
+test("filterSnapshot: depth filter drops deep children", () => {
+  const content = [{ text: `
+- document
+  - main
+    - section "A"
+      - form "B"
+        - button "Deep" [ref=1]
+  - footer
+`.trim() }];
+
+  const d1 = decideSnapshot(content, emptySnapState, URL, { ...opts, depth: 1 });
+  assert.match(d1.responseText, /depth: 1/);
+  assert.match(d1.responseText, /- main/);
+  assert.match(d1.responseText, /- footer/);
+  assert.doesNotMatch(d1.responseText, /button "Deep"/); // Too deep!
+});
+
+test("filterSnapshot: missing section returns full snapshot with warning", () => {
+  const content = [{ text: `- document\n  - main\n    - button "OK" [ref=1]` }];
+  const d1 = decideSnapshot(content, emptySnapState, URL, { ...opts, section: "sidebar" });
+  assert.match(d1.responseText, /section "sidebar" not found\. Returning full snapshot/);
+  assert.match(d1.responseText, /\[ref=1\]/);
+});
+
+test("decideSnapshot: changing section filter clears cache hit", () => {
+  const content = [{ text: `- document\n  - main\n    - button "A" [ref=1]\n  - footer\n    - button "B" [ref=2]` }];
+  const d1 = decideSnapshot(content, emptySnapState, URL, { ...opts, section: "main" });
+  const d2 = decideSnapshot(content, d1.state, URL, { ...opts, section: "footer" });
+  
+  assert.equal(d1.meta.cacheHit, false);
+  assert.equal(d2.meta.cacheHit, false);
+  assert.doesNotMatch(d2.responseText, /UNCHANGED/);
+  assert.match(d2.responseText, /footer/);
+  assert.doesNotMatch(d2.responseText, /main/);
+});
+
+// ── Smart Wait (looksLikeLoading) ────────────────────────────────────────────
+test("looksLikeLoading: returns false if there are enough refs (>= 5)", () => {
+  const content = [{ text: `
+- button "A" [ref=1]
+- button "B" [ref=2]
+- button "C" [ref=3]
+- button "D" [ref=4]
+- button "E" [ref=5]
+- text "Loading please wait"
+`.trim() }];
+  assert.equal(looksLikeLoading(content), false);
+});
+
+test("looksLikeLoading: returns false if low refs but no loading indicator", () => {
+  const content = [{ text: `
+- heading "Welcome"
+- button "Login" [ref=1]
+`.trim() }];
+  assert.equal(looksLikeLoading(content), false);
+});
+
+test("looksLikeLoading: returns true if low refs AND loading indicator is present", () => {
+  const content = [{ text: `
+- img "Loading spinner"
+- text "Please wait..."
+- button "Cancel" [ref=1]
+`.trim() }];
+  assert.equal(looksLikeLoading(content), true);
+});
+
+test("looksLikeLoading: case-insensitive matching for indicators", () => {
+  assert.equal(looksLikeLoading([{ text: `TEXT "SPINNER"` }]), true);
+  assert.equal(looksLikeLoading([{ text: `text "Загрузка данных"` }]), true);
 });

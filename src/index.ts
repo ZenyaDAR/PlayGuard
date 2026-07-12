@@ -31,6 +31,10 @@ const COMPACT = process.env.PLAYGUARD_COMPACT !== "false";
 const TOKEN_BUDGET = parseInt(process.env.PLAYGUARD_TOKEN_BUDGET ?? "0"); // 0 = off
 const EVAL_CACHE_TTL = parseInt(process.env.PLAYGUARD_EVAL_CACHE_TTL ?? "500"); // ms; 0 = off
 const PREFETCH_SNAPSHOT = process.env.PLAYGUARD_PREFETCH_SNAPSHOT !== "false"; // default on
+const SMART_WAIT = process.env.PLAYGUARD_SMART_WAIT === "1" || process.env.PLAYGUARD_SMART_WAIT === "true"; // default off
+const SMART_WAIT_MS = parseInt(process.env.PLAYGUARD_SMART_WAIT_MS ?? "1000");
+const SMART_WAIT_MAX_RETRIES = parseInt(process.env.PLAYGUARD_SMART_WAIT_MAX_RETRIES ?? "3");
+const SMART_WAIT_MIN_REFS = parseInt(process.env.PLAYGUARD_SMART_WAIT_MIN_REFS ?? "5");
 const EVAL_COMPACT_THRESHOLD = parseInt(process.env.PLAYGUARD_EVAL_COMPACT ?? "10000"); // chars; 0 = off
 const FIGMA_MCP_CMD = process.env.FIGMA_MCP_CMD; // undefined = Figma disabled
 const FIGMA_CACHE_TTL = parseInt(process.env.FIGMA_CACHE_TTL ?? "0"); // ms; 0 = off
@@ -115,10 +119,11 @@ export interface SnapState {
   lines: Set<string> | null;
   url: string;
   withoutAction: number;
+  filterKey: string | null;
 }
 export const emptySnapState: SnapState = {
   hash: null, ts: 0, compact: null, rawBytes: 0,
-  prefetched: false, lines: null, url: "", withoutAction: 0,
+  prefetched: false, lines: null, url: "", withoutAction: 0, filterKey: null,
 };
 let snapState: SnapState = { ...emptySnapState };
 
@@ -164,17 +169,103 @@ function hashContent(content: Array<{ text?: string }>): string {
 // Keep only lines that Claude can act on:
 // [ref=] lines are interactive elements; structural landmarks give context.
 // Paragraphs, decorative images, static text have no refs and aren't needed.
-export function compactSnap(content: Array<{ text?: string }>): { text: string; rawBytes: number; keptBytes: number } {
+
+function filterSubtree(lines: string[], filters: { section?: string, around?: number, depth?: number }): { filtered: string[], warning?: string } {
+  let startIdx = -1;
+  let startIndent = -1;
+  let warning: string | undefined;
+
+  if (filters.around !== undefined) {
+    const refStr = `[ref=${filters.around}]`;
+    const refIdx = lines.findIndex(l => l.includes(refStr));
+    if (refIdx >= 0) {
+      let currentIndent = lines[refIdx].length - lines[refIdx].trimStart().length;
+      startIdx = refIdx;
+      startIndent = currentIndent;
+      for (let i = refIdx; i >= 0; i--) {
+        const line = lines[i];
+        if (line.trim() === "") continue;
+        const indent = line.length - line.trimStart().length;
+        if (indent < currentIndent && STRUCTURAL_RE.test(line)) {
+          startIdx = i;
+          startIndent = indent;
+          break;
+        } else if (indent < currentIndent) {
+          currentIndent = indent;
+        }
+      }
+    } else {
+      warning = `ref=${filters.around}`;
+    }
+  } else if (filters.section) {
+    const sectionLower = filters.section.toLowerCase();
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (line.trim() === "") continue;
+      const trimmed = line.trimStart();
+      if (trimmed.startsWith("- ")) {
+        const label = trimmed.slice(2).toLowerCase();
+        if (label.startsWith(sectionLower) || label.includes(`"${sectionLower}"`)) {
+          startIdx = i;
+          startIndent = line.length - trimmed.length;
+          break;
+        }
+      }
+    }
+    if (startIdx === -1) warning = `section "${filters.section}"`;
+  }
+
+  if (startIdx >= 0) {
+    const subtree = [lines[startIdx]];
+    for (let i = startIdx + 1; i < lines.length; i++) {
+      const line = lines[i];
+      if (line.trim() === "") { subtree.push(line); continue; }
+      const indent = line.length - line.trimStart().length;
+      if (indent <= startIndent) break;
+
+      if (filters.depth !== undefined && indent > startIndent + filters.depth * 2) continue;
+      subtree.push(line);
+    }
+    return { filtered: subtree };
+  }
+
+  if (startIdx === -1 && filters.depth !== undefined && !filters.section && filters.around === undefined) {
+    return {
+      filtered: lines.filter(line => {
+        if (line.trim() === "") return true;
+        const indent = line.length - line.trimStart().length;
+        return indent <= filters.depth! * 2;
+      })
+    };
+  }
+
+  return { filtered: lines, warning };
+}
+
+export function compactSnap(content: Array<{ text?: string }>, opts: { compact?: boolean, section?: string, around?: number, depth?: number } = {}): { text: string; rawBytes: number; keptBytes: number } {
   const rawText = content.map((c) => c.text ?? "").join("");
   const lines = rawText.split("\n");
-  const kept = lines.filter((l) => l.includes("[ref=") || STRUCTURAL_RE.test(l) || l.trim() === "");
-  const collapsed = COMPACT ? collapseRuns(kept) : kept;
+  let kept = lines.filter((l) => l.includes("[ref=") || STRUCTURAL_RE.test(l) || l.trim() === "");
+  
+  const { filtered, warning } = filterSubtree(kept, opts);
+  kept = filtered;
+
+  const shouldCompact = opts.compact ?? COMPACT;
+  const collapsed = shouldCompact ? collapseRuns(kept) : kept;
   const keptText = collapsed.join("\n");
   const rawBytes = Buffer.byteLength(rawText);
   const keptBytes = Buffer.byteLength(keptText);
   const pct = lines.length > 0 ? Math.round((1 - kept.length / lines.length) * 100) : 0;
+  
+  const headerOpts = [];
+  if (opts.section) headerOpts.push(`section: ${opts.section}`);
+  if (opts.around) headerOpts.push(`around: ${opts.around}`);
+  if (opts.depth !== undefined) headerOpts.push(`depth: ${opts.depth}`);
+  const headerCtx = headerOpts.length > 0 ? ` (${headerOpts.join(", ")})` : "";
+  const warnStr = warning ? `[PlayGuard: ${warning} not found. Returning full snapshot.]\n` : "";
+
   const result = {
-    text: `[PlayGuard compact: ${kept.length}/${lines.length} lines, ~${pct}% removed, ${(rawBytes / 1024).toFixed(1)}KB→${(keptBytes / 1024).toFixed(1)}KB]\n` + keptText,
+    text: warnStr + `[PlayGuard compact${headerCtx}: ${kept.length}/${lines.length} lines, ~${pct}% removed, ${(rawBytes / 1024).toFixed(1)}KB→${(keptBytes / 1024).toFixed(1)}KB]\n` + keptText,
     rawBytes,
     keptBytes,
   };
@@ -264,12 +355,13 @@ export function dead(v: unknown): boolean {
 
 // Populate snap cache from raw snapshot content — used by redirect and prefetch paths
 function cacheSnapshot(content: Array<{ text?: string }>, fromPrefetch = false): { text: string; rawBytes: number; keptBytes: number } {
-  const summary = compactSnap(content);
+  const summary = compactSnap(content, { compact: COMPACT });
   const newLines = summary.text.split("\n").filter(l => l.includes("[ref=") || STRUCTURAL_RE.test(l));
   snapState = {
     hash: hashContent(content), lines: new Set(newLines), url: lastUrl,
     ts: Date.now(), compact: summary.text, rawBytes: summary.rawBytes,
     prefetched: fromPrefetch, withoutAction: snapState.withoutAction,
+    filterKey: JSON.stringify({}),
   };
   return summary;
 }
@@ -285,6 +377,9 @@ export interface SnapshotMeta {
   keptBytes?: number;
   hinted: boolean;
   snapCount: number;
+  section?: string;
+  around?: number;
+  depth?: number;
 }
 
 export interface SnapshotDecision {
@@ -298,6 +393,9 @@ export interface SnapshotOptions {
   deltaThreshold: number;
   hintThreshold: number;
   compact: boolean;
+  section?: string;
+  around?: number;
+  depth?: number;
 }
 
 // Pure decision logic for browser_snapshot: UNCHANGED (cache hit) vs delta vs full compact.
@@ -310,22 +408,23 @@ export function decideSnapshot(
   opts: SnapshotOptions,
 ): SnapshotDecision {
   const hash = hashContent(content);
+  const filterKey = JSON.stringify({ s: opts.section, a: opts.around, d: opts.depth });
 
-  if (state.hash && hash === state.hash && state.url === currentUrl) {
+  if (state.hash && hash === state.hash && state.url === currentUrl && state.filterKey === filterKey) {
     const withoutAction = state.withoutAction + 1;
     const header = state.compact!.split("\n")[0];
     return {
       responseText: `[PlayGuard: UNCHANGED since ${Date.now() - state.ts}ms ago] ${header}`,
       state: { ...state, withoutAction },
-      meta: { cacheHit: true, prefetchHit: state.prefetched || undefined, delta: false, savedBytes: state.rawBytes, hinted: false, snapCount: withoutAction },
+      meta: { cacheHit: true, prefetchHit: state.prefetched || undefined, delta: false, savedBytes: state.rawBytes, hinted: false, snapCount: withoutAction, section: opts.section, around: opts.around, depth: opts.depth },
     };
   }
 
-  const summary = compactSnap(content);
+  const summary = compactSnap(content, opts);
   const newLines = summary.text.split("\n").filter(l => l.includes("[ref=") || STRUCTURAL_RE.test(l));
   const newSet = new Set(newLines);
 
-  if (opts.deltaEnabled && state.lines && state.url === currentUrl) {
+  if (opts.deltaEnabled && state.lines && state.url === currentUrl && state.filterKey === filterKey) {
     const added = newLines.filter(l => !state.lines!.has(l));
     const removed = [...state.lines].filter(l => !newSet.has(l));
     const ratio = (added.length + removed.length) / (newLines.length || 1);
@@ -339,8 +438,8 @@ export function decideSnapshot(
       ].filter(Boolean).join("\n");
       return {
         responseText: deltaText,
-        state: { hash, lines: newSet, url: currentUrl, ts: Date.now(), compact: summary.text, rawBytes: summary.rawBytes, prefetched: false, withoutAction },
-        meta: { cacheHit: false, delta: true, deltaAdded: added.length, deltaRemoved: removed.length, hinted: false, snapCount: withoutAction },
+        state: { hash, lines: newSet, url: currentUrl, ts: Date.now(), compact: summary.text, rawBytes: summary.rawBytes, prefetched: false, withoutAction, filterKey },
+        meta: { cacheHit: false, delta: true, deltaAdded: added.length, deltaRemoved: removed.length, hinted: false, snapCount: withoutAction, section: opts.section, around: opts.around, depth: opts.depth },
       };
     }
   }
@@ -355,16 +454,31 @@ export function decideSnapshot(
 
   return {
     responseText: finalText,
-    state: { hash, lines: newSet, url: currentUrl, ts: Date.now(), compact: summary.text, rawBytes: summary.rawBytes, prefetched: false, withoutAction },
-    meta: { cacheHit: false, delta: false, rawBytes: summary.rawBytes, keptBytes: summary.keptBytes, hinted, snapCount: withoutAction },
+    state: { hash, lines: newSet, url: currentUrl, ts: Date.now(), compact: summary.text, rawBytes: summary.rawBytes, prefetched: false, withoutAction, filterKey },
+    meta: { cacheHit: false, delta: false, rawBytes: summary.rawBytes, keptBytes: summary.keptBytes, hinted, snapCount: withoutAction, section: opts.section, around: opts.around, depth: opts.depth },
   };
+}
+
+export function looksLikeLoading(content: Array<{ text?: string }>): boolean {
+  const rawText = content.map((c) => c.text ?? "").join("");
+  const refsCount = (rawText.match(/\[ref=\d+\]/g) || []).length;
+  if (refsCount >= SMART_WAIT_MIN_REFS) return false;
+  return /\b(loading|spinner|skeleton|progress|please wait)\b|загрузк/i.test(rawText);
 }
 
 // ponytail: fire-and-forget — races don't matter, worst case next snapshot call is a miss
 async function prefetchSnapshot(): Promise<void> {
   try {
     const c = await getConn();
-    const r = await c.callTool({ name: "browser_snapshot", arguments: {} });
+    let r = await c.callTool({ name: "browser_snapshot", arguments: {} });
+    if (!r.isError && SMART_WAIT) {
+      let attempts = 0;
+      while (attempts < SMART_WAIT_MAX_RETRIES && looksLikeLoading(r.content as Array<{ text?: string }>)) {
+        await new Promise(res => setTimeout(res, SMART_WAIT_MS));
+        r = await c.callTool({ name: "browser_snapshot", arguments: {} });
+        attempts++;
+      }
+    }
     if (!r.isError) cacheSnapshot(r.content as Array<{ text?: string }>, true);
   } catch {}
 }
@@ -665,6 +779,21 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       }
     }
   }
+  const snap = (result.tools as Tool[]).find((t) => t.name === "browser_snapshot");
+  if (snap?.inputSchema?.properties) {
+    (snap.inputSchema.properties as Record<string, unknown>).section = {
+      type: "string",
+      description: "Return only the subtree under this landmark (e.g. 'form', 'main', 'navigation \"Footer\"'). Reduces output by 90%+.",
+    };
+    (snap.inputSchema.properties as Record<string, unknown>).around = {
+      type: "number",
+      description: "Return only the landmark subtree containing this ref number. Use when you know a specific element's ref.",
+    };
+    (snap.inputSchema.properties as Record<string, unknown>).depth = {
+      type: "number",
+      description: "Max depth of the returned subtree. Use with section/around to get a high-level overview first.",
+    };
+  }
   if (FIGMA_MCP_CMD) {
     try {
       const figmaResult = await getFigmaConn().then(c => c.listTools());
@@ -866,16 +995,37 @@ server.setRequestHandler(CallToolRequestSchema, async ({ params: { name, argumen
     if (retry) wasRetried = true;
     const c = retry ? await revive() : await getConn();
     try {
-      const r = await c.callTool({ name, arguments: args });
+      let r = await c.callTool({ name, arguments: args });
       const bodyText = (r.content as Array<{ text?: string }>).map((x) => x.text ?? "").join(" ");
       if (!retry && r.isError && dead(bodyText)) return invoke(true);
 
       if (!r.isError) {
         if (name === "browser_snapshot") {
+          if (SMART_WAIT && (!snapState.prefetched || !snapState.hash)) {
+            let attempts = 0;
+            while (attempts < SMART_WAIT_MAX_RETRIES && looksLikeLoading(r.content as ContentItem[])) {
+              await new Promise(res => setTimeout(res, SMART_WAIT_MS));
+              const c = await getConn();
+              r = await c.callTool({ name: "browser_snapshot", arguments: args });
+              attempts++;
+            }
+          }
+
+          const a = args as ToolArgs;
+          const section = typeof a.section === "string" ? a.section : undefined;
+          const around = typeof a.around === "number" ? a.around : undefined;
+          const depth = typeof a.depth === "number" ? a.depth : undefined;
+
           const decision = decideSnapshot(r.content as ContentItem[], snapState, lastUrl, {
             deltaEnabled: DELTA_ENABLED, deltaThreshold: DELTA_THRESHOLD,
             hintThreshold: HINT_THRESHOLD, compact: COMPACT,
+            section, around, depth
           });
+          
+          if (SMART_WAIT && looksLikeLoading(r.content as ContentItem[])) {
+             decision.responseText = `[PlayGuard: page may still be loading after waiting (low refs, loading indicator present)]\n` + decision.responseText;
+          }
+
           snapState = decision.state;
           return {
             content: [{ type: "text", text: decision.responseText }],
@@ -950,6 +1100,9 @@ server.setRequestHandler(CallToolRequestSchema, async ({ params: { name, argumen
       keptBytes: m?.keptBytes,
       hinted: m?.hinted ?? false,
       snapCount: m?.snapCount,
+      section: m?.section,
+      around: m?.around,
+      depth: m?.depth,
     };
   } else if (name === "browser_evaluate") {
     extra = { ...extra, scriptHash, outputBytes: evalOutputBytes, truncated: evalTruncated };

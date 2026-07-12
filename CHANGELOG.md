@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.5.0 — 2026-07-12
+
+### Added
+- `browser_snapshot` accepts `section`, `around`, and `depth` params to return
+  only a landmark subtree instead of the full tree — for pages where the
+  relevant UI is buried under a large accessibility tree, compaction alone
+  wasn't enough to keep snapshots small. Falls back to the full snapshot
+  with a warning if the requested section/ref isn't found.
+- `PLAYGUARD_SMART_WAIT`: when a snapshot looks like it caught a page mid-load
+  (few refs plus a loading/spinner/skeleton indicator), retries up to
+  `PLAYGUARD_SMART_WAIT_MAX_RETRIES` times (default 3, `PLAYGUARD_SMART_WAIT_MS`
+  apart, default 1000ms) before returning — avoids agents acting on a stale
+  or half-rendered snapshot. Off by default (opt-in via `=1`/`=true`) since it
+  adds latency to every snapshot call.
+- Snapshot cache/delta decisions now key on the active section/around/depth
+  filter, so switching filters always forces a fresh snapshot instead of a
+  stale cache hit from a differently-filtered request.
+
 ## 0.4.1 — 2026-07-11
 
 ### Added

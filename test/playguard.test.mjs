@@ -6,8 +6,10 @@ process.env.FIGMA_SVG_REFS = "true";
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { isAbsolute, join } from "node:path";
 
-const { collapseRuns, compactSnap, optimizeFigmaResponse, budgetTrimFigma } = await import("../dist/index.js");
+const { collapseRuns, compactSnap, optimizeFigmaResponse, budgetTrimFigma,
+  withOutputDir, figmaLocalPath } = await import("../dist/index.js");
 
 const refLine = (i) => `- button "label ${i}" [ref=${i}]`;
 
@@ -70,12 +72,12 @@ test("optimizeFigmaResponse applies all subtractive modules", () => {
   assert.equal(stats.uniqueComponents, 1);
   assert.equal(stats.instancesCollapsed, 1, "second C1 instance collapsed to a ref");
   assert.equal(stats.svgRefsReplaced, 1);
-  assert.ok(stats.layoutCoordsRemoved >= 1, "x/y dropped inside auto-layout");
   assert.ok(stats.outBytes < stats.inBytes, "output is smaller");
 
   const kids = data.document.children[0].children;
   assert.equal(kids.find((k) => k.id === "i2")._ref, "C1");
   assert.equal(kids.find((k) => k.id === "v1")._svgRef, "v1");
+  assert.equal(data.document.children[0].children.find((k) => k.id === "i1").x, 1, "x/y preserved");
 });
 
 test("optimizeFigmaResponse: inBytes uses the raw upstream byte count when provided", () => {
@@ -196,4 +198,48 @@ test("budgetTrimFigma: Framelink 'nodes' array shape is trimmed the same way, me
   for (const node of doc.nodes) {
     assert.ok(out.includes(node.id), `top-level node ${node.id} must not vanish silently`);
   }
+});
+
+// ── Output directory routing ──────────────────────────────────────────────────
+
+test("withOutputDir appends the flag when the user passed no --output-dir", () => {
+  assert.deepEqual(
+    withOutputDir(["--headless"], "/out"),
+    ["--headless", "--output-dir", "/out"],
+  );
+});
+
+test("withOutputDir respects an explicit --output-dir in either form", () => {
+  // Space form.
+  const spaced = ["--output-dir", "/mine"];
+  assert.deepEqual(withOutputDir(spaced, "/out"), spaced);
+  // `=` form — the case a plain includes() check misses, which would append a
+  // second flag and let ours win on last-flag-wins parsing.
+  const equals = ["--output-dir=/mine"];
+  assert.deepEqual(withOutputDir(equals, "/out"), equals);
+});
+
+test("withOutputDir does not mutate the array it is given", () => {
+  const args = ["--headless"];
+  withOutputDir(args, "/out");
+  assert.deepEqual(args, ["--headless"], "PW_ARGS must not leak a mutation back into the caller");
+});
+
+test("figmaLocalPath anchors a relative path under OUTPUT_DIR/figma", () => {
+  const out = figmaLocalPath("icons", "/out");
+  assert.ok(out.endsWith(join("figma", "icons")), `expected .../figma/icons, got ${out}`);
+  assert.ok(isAbsolute(out));
+});
+
+test("figmaLocalPath passes an absolute path through untouched", () => {
+  // Both forms are absolute under path.win32 and path.posix alike.
+  assert.equal(figmaLocalPath("/tmp/icons", "/out"), null, "an absolute path is the caller being explicit");
+  if (process.platform === "win32")
+    assert.equal(figmaLocalPath("C:/tmp/icons", "/out"), null, "a drive-qualified path is absolute too");
+});
+
+test("figmaLocalPath ignores a missing, empty, or non-string localPath", () => {
+  assert.equal(figmaLocalPath(undefined, "/out"), null);
+  assert.equal(figmaLocalPath("", "/out"), null, "empty string must not resolve to the figma dir itself");
+  assert.equal(figmaLocalPath(42, "/out"), null);
 });

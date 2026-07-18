@@ -141,6 +141,41 @@ PlayGuard intercepts Figma MCP responses and runs them through an optimization p
 
 ---
 
+### Design Diff
+
+`playguard_compare_design` compares a Figma node against the live DOM element that implements it and reports the exact differences — no screenshots, no eyeballing.
+
+```
+[PlayGuard design diff: 42:1337 → [data-testid="login-btn"] 2 mismatches, 6 matches]
+
+  fontSize:        Figma 16px              → Browser 14px              ⚠️  MISMATCH (+2.0px)
+  color:           Figma rgb(255, 255, 255)→ Browser rgb(255, 255, 255) ✓  MATCH
+  backgroundColor: Figma rgb(25, 118, 210) → Browser rgb(25, 118, 210) ✓  MATCH
+  padding:         Figma 12px 24px 12px 24px → Browser 12px 16px 12px 16px ⚠️  MISMATCH (Δright:+8px, Δleft:+8px)
+  borderRadius:    Figma 8px               → Browser 8px 8px 8px 8px   ✓  MATCH
+```
+
+Three modes:
+
+| Mode | Arguments | Use |
+|------|-----------|-----|
+| Single | `figmaNodeId` + `browserSelector` | One element |
+| Batch | `pairs: [{figmaNodeId, browserSelector}, …]` | Several at once; one bad selector doesn't sink the rest |
+| Auto-map | `figmaNodeId` + `autoMap: true` | Point at a component; layers beneath are matched to DOM elements by `data-figma-id`, `data-testid`, `id`, `class`, or exact text |
+
+Notes on how it decides:
+
+- **Properties are auto-selected per node.** A TEXT layer gets its typography and colour; a container gets `backgroundColor`/`padding`/`borderRadius`/`boxShadow`. Pass `properties[]` to override.
+- **Tolerances.** Sizes compare within `PLAYGUARD_DESIGN_DIFF_TOLERANCE_PX`, colours within `PLAYGUARD_DESIGN_DIFF_TOLERANCE_COLOR` per channel. Box properties (`padding`, `margin`, `borderRadius`, `borderWidth`) compare side-by-side, so `8px 8px 0 0` never passes as `8px`.
+- **Unset ≠ unknown.** A property Figma leaves unset but CSS zero-defaults (no shadow, no border) is still checked, so a stray browser value is caught. `margin` is the exception — Figma has no margin concept, so it is reported as unknown rather than as a defect.
+- **Typography follows the label.** A button's font size is read from its TEXT layer at any depth, and its background is never mistaken for its text colour.
+- **`width`/`height` are never auto-selected** — they depend on the viewport, not the design. Request them explicitly and a warning rides along.
+- **Auto-map never guesses.** A candidate selector matching zero or several elements is reported as unmapped, not silently attached to the wrong element.
+
+Both upstream shapes are handled: the raw Figma REST API (`@figma/mcp`) and Framelink's pre-simplified `globalVars.styles` form (`figma-developer-mcp`).
+
+---
+
 ## Requirements
 
 - Node.js 18+
@@ -243,7 +278,8 @@ Use forward slashes in JSON strings. Spaces in paths do not need escaping:
 | `PLAYGUARD_EVAL_CACHE_TTL` | `500` | `browser_evaluate` cache TTL in ms. `0` = off |
 | `PLAYGUARD_EVAL_COMPACT` | `10000` | Max characters for eval output. `0` = off |
 | `PLAYWRIGHT_MCP_CMD` | bundled binary | Override the Playwright MCP command |
-| `PLAYWRIGHT_MCP_ARGS` | — | Extra arguments passed to Playwright MCP (space-separated; wrap an argument in `"..."` or `'...'` if it contains a space, e.g. a path) |
+| `PLAYWRIGHT_MCP_ARGS` | — | Extra arguments passed to Playwright MCP (space-separated; wrap an argument in `"..."` or `'...'` if it contains a space, e.g. a path). Passing `--output-dir` here takes precedence over `PLAYGUARD_OUTPUT_DIR` |
+| `PLAYGUARD_OUTPUT_DIR` | `.playguard/` | Where all on-disk artifacts go — screenshots, traces, PDFs, downloads, session, and Figma images (under `figma/`). Defaults to `.playguard/` in the project root instead of the upstream's `.playwright-mcp/` |
 | `PLAYGUARD_LOG_DIR` | `logs/` | Override the NDJSON analytics log directory |
 
 ### Figma
@@ -256,6 +292,13 @@ Use forward slashes in JSON strings. Spaces in paths do not need escaping:
 | `FIGMA_SVG_REFS` | `true` | Set `false` to keep SVG geometry inline |
 | `FIGMA_TEXT_COMPACT` | `10000` | Max characters for the Figma text response. When the optimizer parsed the tree, an over-budget response is trimmed structurally (Module 7) — branches collapse to `{id,name,type}` stubs, never silently disappear. Only falls back to a raw text slice if the response never parsed (`parseSkip`). `0` = off |
 | `FIGMA_API_KEY` | — | Forwarded to the Figma MCP child process |
+
+### Design Diff
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PLAYGUARD_DESIGN_DIFF_TOLERANCE_PX` | `2` | Size difference, in px, still counted as a match |
+| `PLAYGUARD_DESIGN_DIFF_TOLERANCE_COLOR` | `5` | Per-channel RGB difference still counted as a match |
 
 ---
 
@@ -348,7 +391,7 @@ Measures proxy overhead, snapshot vs screenshot size, cache hit rate, and crash 
 npm test
 ```
 
-Covers `collapseRuns`, `compactSnap` (including token budget boundary), the full Figma optimizer pipeline (`optimizeFigmaResponse`), and the structural budget trim (`budgetTrimFigma`) in `test/playguard.test.mjs`, plus `dead()` crash detection, `splitArgs()` quoting, the shared `ttlCache()` helper, the `decideSnapshot()` cache/delta/hint decision logic, the `section`/`around`/`depth` snapshot filtering, the `looksLikeLoading()` smart-wait heuristic, and the Module 8 Framelink-shape optimizations in `test/playguard-core.test.mjs`.
+Covers `collapseRuns`, `compactSnap` (including token budget boundary), the full Figma optimizer pipeline (`optimizeFigmaResponse`), and the structural budget trim (`budgetTrimFigma`) in `test/playguard.test.mjs`, plus `dead()` crash detection, `splitArgs()` quoting, the shared `ttlCache()` helper, the `decideSnapshot()` cache/delta/hint decision logic, the `section`/`around`/`depth` snapshot filtering, the `looksLikeLoading()` smart-wait heuristic, and the Module 8 Framelink-shape optimizations in `test/playguard-core.test.mjs`. `test/design-diff.test.mjs` covers the design-diff side: property extraction from both upstream Figma shapes (REST and Framelink), colour/border/typography normalization, the comparison and tolerance rules, and the generated auto-map script.
 
 CI (GitHub Actions, `.github/workflows/ci.yml`) runs `npm test` on every push and pull request to `main`.
 
@@ -373,16 +416,22 @@ CI (GitHub Actions, `.github/workflows/ci.yml`) runs `npm test` on every push an
 ```
 playguard/
 ├── src/
-│   └── index.ts                    All server logic (~1140 lines)
+│   ├── index.ts                    MCP server: tool routing, proxying, caches
+│   ├── config.ts                   Env-derived settings, resolved paths, upstream commands
+│   ├── snapshot.ts                 Snapshot compaction and the cache/delta decision
+│   ├── figma-optimize.ts           Figma response optimizer (Modules 1–8)
+│   └── design-diff.ts              Figma ↔ browser property extraction and diffing
 ├── dist/                           Compiled output (generated by npm run build)
 ├── bench/
 │   ├── run.mjs                     Benchmark: latency, token savings, crash recovery
 │   └── analyze.mjs                 Analytics report from NDJSON logs
 ├── test/
-│   ├── playguard.test.mjs          Compact/Figma optimizer tests (Node built-in test runner)
-│   └── playguard-core.test.mjs     Crash detection, arg parsing, caching, snapshot decision tests
+│   ├── playguard.test.mjs          Compact/Figma optimizer, output-dir routing
+│   ├── playguard-core.test.mjs     Crash detection, arg parsing, caching, snapshot decision
+│   └── design-diff.test.mjs        Property extraction, comparison, auto-map
 ├── .github/workflows/ci.yml        Runs npm test on push/PR
 ├── logs/                           Per-day NDJSON call logs (auto-created at runtime)
+├── .playguard/                     Screenshots, traces, PDFs, Figma images (auto-created)
 ├── package.json
 └── tsconfig.json
 ```

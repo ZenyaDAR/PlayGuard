@@ -5,3 +5,4 @@ logs/
 *.ndjson
 IDEAS.md
 .playwright-mcp/
+.playguard/

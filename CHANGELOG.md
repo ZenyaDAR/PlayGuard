@@ -1,5 +1,50 @@
 # Changelog
 
+## 0.6.0 — 2026-07-18
+
+### Added
+- `playguard_compare_design`: compares a Figma node against the live DOM and
+  reports only the properties that actually differ. Three modes — single
+  element, batch, and auto-map (generates a browser script that matches Figma
+  layers to DOM nodes by text). Agents were previously eyeballing screenshots
+  against Figma, which is both expensive in tokens and unreliable for
+  spacing/colour deltas.
+- `PLAYGUARD_DESIGN_DIFF_TOLERANCE_PX` (default 2) and
+  `PLAYGUARD_DESIGN_DIFF_TOLERANCE_COLOR` (default 5) — sub-pixel rounding and
+  colour-space drift would otherwise flood the report with false mismatches.
+
+### Fixed
+- Border colour never matched on Framelink upstreams: Figma's 0–1 RGB objects,
+  hex strings, and ready-made `rgb()` strings now all go through one
+  normalizer before comparison, and `borderColor` is compared with the colour
+  tolerance rather than as an exact string.
+- Nodes served by the Figma REST API with a shared-styles map were detected as
+  Framelink-shaped and silently produced all-null properties. Upstream shape is
+  now decided by markers unique to each shape, not by the presence of `styles`,
+  which both shapes use for different things.
+- Text properties were read from the container rather than the text layer, so a
+  button's background colour was reported as its text colour. Typography and
+  colour now resolve against the nearest TEXT descendant at any depth, falling
+  back to the container only where it is the node that actually defines the
+  property (Framelink hoists typography onto the frame).
+- `margin` was reported as a mismatch whenever the DOM had one, since Figma has
+  no margin concept and always yielded null. It is now treated as unknowable
+  and skipped, not as an expected zero.
+- U+2028/U+2029 in Figma layer names broke the generated auto-map script —
+  `JSON.stringify` does not escape them, and they terminate a line in JS source.
+
+### Changed
+- `src/index.ts` split into `config.ts`, `snapshot.ts`, `figma-optimize.ts`,
+  and `design-diff.ts`. It had grown past 1100 lines and the design-diff work
+  would have added several hundred more.
+- Screenshots and traces default to `.playguard/` in the project directory
+  instead of the system temp dir, and `--output-dir` is only injected when the
+  user has not set it themselves.
+- Dropped the manual `cmd /c` wrapper around upstream spawns on Windows. The
+  MCP SDK already routes through `cross-spawn`; the extra wrapper mangled
+  arguments containing spaces or non-ASCII characters, so any project path
+  with a space in it broke screenshot output.
+
 ## 0.5.0 — 2026-07-12
 
 ### Added

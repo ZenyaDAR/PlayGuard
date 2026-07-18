@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.1 — 2026-07-18
+
+### Fixed
+- The upstream Playwright MCP failed to spawn whenever PlayGuard itself was not
+  the project root — under `npx`, a global install, or any hoisted layout. It
+  was located by shim (`node_modules/.bin/playwright-mcp`) with a fall back to
+  the bare command name, and in those layouts the shim sits in a directory that
+  never reaches the child process's PATH, so every browser tool failed with
+  "playwright-mcp.cmd is not recognized". It is now resolved through Node's
+  module graph and run with the node binary already in use, which does not
+  depend on PATH or on where the package was installed.
+
 ## 0.6.0 — 2026-07-18
 
 ### Added

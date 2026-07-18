@@ -2,6 +2,7 @@
 // upstream MCP commands. Beyond parsing the dials it only creates the two
 // directories it resolves (LOG_DIR, OUTPUT_DIR) — no other side effects.
 import { fileURLToPath } from "url";
+import { createRequire } from "module";
 import { resolve, dirname } from "path";
 import { readFileSync, existsSync, mkdirSync } from "fs";
 
@@ -55,12 +56,33 @@ mkdirSync(LOG_DIR, { recursive: true });
 export const OUTPUT_DIR = process.env.PLAYGUARD_OUTPUT_DIR || resolve(process.cwd(), ".playguard");
 mkdirSync(OUTPUT_DIR, { recursive: true });
 
+// Find the upstream through Node's own module resolution and run its entry with
+// the node binary we're already running. Locating it by shim instead — a
+// `.bin/playwright-mcp.cmd` path, or the bare name in the hope that npm put it
+// on PATH — only works when this package is the project root. Under `npx`, a
+// global install, or any hoisted layout, the shim lives in a directory that
+// never reaches the child's PATH and the upstream fails to spawn at all.
+// Resolving `package.json` (not `cli.js`) on purpose: the package's `exports`
+// map doesn't expose the CLI, but `package.json` is always reachable and names
+// the entry in its `bin` field.
+export function resolveUpstream(): [string, string[]] | null {
+  try {
+    const pkgPath = createRequire(import.meta.url).resolve("@playwright/mcp/package.json");
+    const bin = JSON.parse(readFileSync(pkgPath, "utf8")).bin;
+    const entry = typeof bin === "string" ? bin : bin?.["playwright-mcp"];
+    return entry ? [process.execPath, [resolve(dirname(pkgPath), entry)]] : null;
+  } catch {
+    return null;
+  }
+}
+
 const binName = process.platform === "win32" ? "playwright-mcp.cmd" : "playwright-mcp";
 const localBin = resolve(__dir, "..", "node_modules", ".bin", binName);
-// When installed via npm/npx, dependencies are hoisted — localBin points inside
-// the package's own node_modules which doesn't exist. Fall back to the bare
-// command name which npm places on PATH.
-const rawCmd = process.env.PLAYWRIGHT_MCP_CMD ?? (existsSync(localBin) ? localBin : binName);
+// Shim lookup stays as the last resort: it covers an upstream that was installed
+// as a bare binary rather than as a resolvable dependency.
+const [rawCmd, baseArgs]: [string, string[]] = process.env.PLAYWRIGHT_MCP_CMD
+  ? [process.env.PLAYWRIGHT_MCP_CMD, []]
+  : resolveUpstream() ?? [existsSync(localBin) ? localBin : binName, []];
 const extraArgs = process.env.PLAYWRIGHT_MCP_ARGS ? splitArgs(process.env.PLAYWRIGHT_MCP_ARGS) : [];
 
 // Point Playwright MCP's output at OUTPUT_DIR — but respect an explicit --output-dir
@@ -74,7 +96,7 @@ export function withOutputDir(args: string[], dir: string): string[] {
 // Run the command directly and let cross-spawn (used inside the MCP SDK) handle .cmd/.bat
 // invocation. A manual `cmd /c` wrapper mangles args with spaces — cmd's quote-stripping
 // splits an --output-dir path like "…\Рабочий стол\…" mid-path.
-export const [PW_CMD, PW_ARGS]: [string, string[]] = [rawCmd, withOutputDir(extraArgs, OUTPUT_DIR)];
+export const [PW_CMD, PW_ARGS]: [string, string[]] = [rawCmd, withOutputDir([...baseArgs, ...extraArgs], OUTPUT_DIR)];
 
 const figmaExtraArgs = process.env.FIGMA_MCP_ARGS ? splitArgs(process.env.FIGMA_MCP_ARGS) : [];
 export const [FIGMA_CMD, FIGMA_ARGS]: [string, string[]] = FIGMA_MCP_CMD

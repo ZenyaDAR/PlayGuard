@@ -7,9 +7,11 @@ process.env.FIGMA_SVG_REFS = "true";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { isAbsolute, join } from "node:path";
+import { existsSync } from "node:fs";
 
 const { collapseRuns, compactSnap, optimizeFigmaResponse, budgetTrimFigma,
   withOutputDir, figmaLocalPath } = await import("../dist/index.js");
+const { resolveUpstream } = await import("../dist/config.js");
 
 const refLine = (i) => `- button "label ${i}" [ref=${i}]`;
 
@@ -198,6 +200,21 @@ test("budgetTrimFigma: Framelink 'nodes' array shape is trimmed the same way, me
   for (const node of doc.nodes) {
     assert.ok(out.includes(node.id), `top-level node ${node.id} must not vanish silently`);
   }
+});
+
+// ── Upstream resolution ───────────────────────────────────────────────────────
+// A `.bin` shim or a bare command name only resolves when this package is the
+// project root; under npx or a global install the upstream failed to spawn at
+// all. Resolution has to go through the module graph, which is what this asserts.
+
+test("resolveUpstream locates the Playwright MCP entry as a real file", () => {
+  const found = resolveUpstream();
+  assert.ok(found, "upstream should resolve — @playwright/mcp is a dependency");
+  const [cmd, args] = found;
+  assert.equal(cmd, process.execPath, "runs on the node binary already in use, not a shell shim");
+  assert.equal(args.length, 1);
+  assert.ok(isAbsolute(args[0]), "entry must be absolute — a relative path would depend on cwd");
+  assert.ok(existsSync(args[0]), `resolved entry should exist on disk: ${args[0]}`);
 });
 
 // ── Output directory routing ──────────────────────────────────────────────────

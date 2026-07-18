@@ -391,7 +391,7 @@ Measures proxy overhead, snapshot vs screenshot size, cache hit rate, and crash 
 npm test
 ```
 
-Covers `collapseRuns`, `compactSnap` (including token budget boundary), the full Figma optimizer pipeline (`optimizeFigmaResponse`), and the structural budget trim (`budgetTrimFigma`) in `test/playguard.test.mjs`, plus `dead()` crash detection, `splitArgs()` quoting, the shared `ttlCache()` helper, the `decideSnapshot()` cache/delta/hint decision logic, the `section`/`around`/`depth` snapshot filtering, the `looksLikeLoading()` smart-wait heuristic, and the Module 8 Framelink-shape optimizations in `test/playguard-core.test.mjs`. `test/design-diff.test.mjs` covers the design-diff side: property extraction from both upstream Figma shapes (REST and Framelink), colour/border/typography normalization, the comparison and tolerance rules, and the generated auto-map script.
+Covers `collapseRuns`, `compactSnap` (including token budget boundary), the full Figma optimizer pipeline (`optimizeFigmaResponse`), the structural budget trim (`budgetTrimFigma`), and the artifact-path plumbing — `withOutputDir`, `figmaLocalPath`, and `resolveUpstream`, which locates the Playwright MCP through the module graph — in `test/playguard.test.mjs`, plus `dead()` crash detection, `splitArgs()` quoting, the shared `ttlCache()` helper, the `decideSnapshot()` cache/delta/hint decision logic, the `section`/`around`/`depth` snapshot filtering, the `looksLikeLoading()` smart-wait heuristic, and the Module 8 Framelink-shape optimizations in `test/playguard-core.test.mjs`. `test/design-diff.test.mjs` covers the design-diff side: property extraction from both upstream Figma shapes (REST and Framelink), colour/border/typography normalization, the comparison and tolerance rules, and the generated auto-map script.
 
 CI (GitHub Actions, `.github/workflows/ci.yml`) runs `npm test` on every push and pull request to `main`.
 
@@ -426,7 +426,7 @@ playguard/
 │   ├── run.mjs                     Benchmark: latency, token savings, crash recovery
 │   └── analyze.mjs                 Analytics report from NDJSON logs
 ├── test/
-│   ├── playguard.test.mjs          Compact/Figma optimizer, output-dir routing
+│   ├── playguard.test.mjs          Compact/Figma optimizer, output-dir routing, upstream resolution
 │   ├── playguard-core.test.mjs     Crash detection, arg parsing, caching, snapshot decision
 │   └── design-diff.test.mjs        Property extraction, comparison, auto-map
 ├── .github/workflows/ci.yml        Runs npm test on push/PR

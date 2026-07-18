@@ -7,6 +7,14 @@ on:
     tags:
       - "v*"
 
+# A GitHub Release also creates the tag, so both triggers fire for one version.
+# Serialize them per tag: the loser then re-checks npm after the winner has
+# published and skips, instead of racing it and failing with a 403.
+# Never cancel-in-progress — that would kill a run mid-`npm publish`.
+concurrency:
+  group: publish-${{ github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
   publish:
     runs-on: ubuntu-latest

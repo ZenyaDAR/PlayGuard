@@ -406,3 +406,19 @@ test("looksLikeLoading: case-insensitive matching for indicators", () => {
   assert.equal(looksLikeLoading([{ text: `TEXT "SPINNER"` }]), true);
   assert.equal(looksLikeLoading([{ text: `text "Загрузка данных"` }]), true);
 });
+
+// ── sortDeep — Figma cache key identity ────────────────────────────────────
+test("sortDeep: key order does not change the serialization", async () => {
+  const { sortDeep } = await import("../dist/index.js");
+  assert.equal(
+    JSON.stringify(sortDeep({ b: 1, a: { d: 2, c: 3 } })),
+    JSON.stringify(sortDeep({ a: { c: 3, d: 2 }, b: 1 })),
+  );
+});
+
+test("sortDeep: nested values still distinguish two different calls", async () => {
+  const { sortDeep } = await import("../dist/index.js");
+  const key = (nodeId) => JSON.stringify(sortDeep({ fileKey: "abc", nodes: [{ nodeId, fileName: "a.png" }] }));
+  assert.notEqual(key("1:2"), key("9:9"));
+  assert.match(key("1:2"), /1:2/);
+});

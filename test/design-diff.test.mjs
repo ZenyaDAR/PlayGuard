@@ -102,9 +102,15 @@ test("extractFigmaProperties: unwraps a top-level 'document' envelope (Raw REST 
 });
 
 // ── buildBrowserEvalScript ────────────────────────────────────────────────
-test("buildBrowserEvalScript: escapes single quotes in the selector", () => {
-  const script = buildBrowserEvalScript("[data-testid='login-btn']", ["fontSize"]);
-  assert.match(script, /\[data-testid=\\'login-btn\\'\]/);
+// Parsing the generated script is the real assertion: a selector that breaks out of
+// its string literal makes the page eval throw an opaque SyntaxError instead of
+// reporting the element as missing.
+test("buildBrowserEvalScript: quotes, backslashes and newlines survive as valid JS", () => {
+  for (const sel of ["[data-testid='login-btn']", '[data-x="y"]', "a\\b", ".a,\n.b > .c"]) {
+    const script = buildBrowserEvalScript(sel, ["fontSize"]);
+    assert.doesNotThrow(() => new Function(`return ${script}`), `unparsable for ${JSON.stringify(sel)}`);
+    assert.ok(script.includes(JSON.stringify(sel)), `selector missing for ${JSON.stringify(sel)}`);
+  }
 });
 
 test("buildBrowserEvalScript: drops properties outside the known whitelist", () => {
@@ -918,4 +924,23 @@ test("buildAutoMapScript: a quote in a layer name cannot break out of the payloa
   }]);
   const items = new Function("return " + script.match(/const items = (\[[\s\S]*?\]);/)[1])();
   assert.equal(items[0].text, 'x"; alert(1); //', "the payload stays a single JSON string");
+});
+
+// ── resolveFigmaNode: found flag ──────────────────────────────────────────
+test("resolveFigmaNode: reports found=false instead of silently returning the root", () => {
+  const data = { nodes: [{ id: "1:1", children: [{ id: "1:2" }] }] };
+  assert.equal(resolveFigmaNode(data, "1:2").found, true);
+  assert.equal(resolveFigmaNode(data, "1:1").found, true);
+  assert.equal(resolveFigmaNode(data).found, true);
+  const miss = resolveFigmaNode(data, "42:9999");
+  assert.equal(miss.found, false);
+  assert.equal(miss.node.id, "1:1"); // still falls back, for listing callers
+});
+
+// ── normalizeBrowserResponse: logical text-align ──────────────────────────
+test("normalizeBrowserResponse: maps computed start/end onto left/right", () => {
+  assert.equal(normalizeBrowserResponse({ textAlign: "start" }, ["textAlign"]).textAlign, "left");
+  assert.equal(normalizeBrowserResponse({ textAlign: "end" }, ["textAlign"]).textAlign, "right");
+  assert.equal(normalizeBrowserResponse({ textAlign: "center" }, ["textAlign"]).textAlign, "center");
+  assert.equal(normalizeBrowserResponse({}, ["textAlign"]).textAlign, null);
 });

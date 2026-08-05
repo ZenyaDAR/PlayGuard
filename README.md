@@ -171,6 +171,7 @@ Notes on how it decides:
 - **Typography follows the label.** A button's font size is read from its TEXT layer at any depth, and its background is never mistaken for its text colour.
 - **`width`/`height` are never auto-selected** — they depend on the viewport, not the design. Request them explicitly and a warning rides along.
 - **Auto-map never guesses.** A candidate selector matching zero or several elements is reported as unmapped, not silently attached to the wrong element.
+- **A missing node is an error, not a substitute.** A `figmaNodeId` the upstream response doesn't contain fails that pair, rather than falling back to whatever the response's root frame happens to be.
 
 Both upstream shapes are handled: the raw Figma REST API (`@figma/mcp`) and Framelink's pre-simplified `globalVars.styles` form (`figma-developer-mcp`).
 
@@ -391,7 +392,7 @@ Measures proxy overhead, snapshot vs screenshot size, cache hit rate, and crash 
 npm test
 ```
 
-Covers `collapseRuns`, `compactSnap` (including token budget boundary), the full Figma optimizer pipeline (`optimizeFigmaResponse`), the structural budget trim (`budgetTrimFigma`), and the artifact-path plumbing — `withOutputDir`, `figmaLocalPath`, and `resolveUpstream`, which locates the Playwright MCP through the module graph — in `test/playguard.test.mjs`, plus `dead()` crash detection, `splitArgs()` quoting, the shared `ttlCache()` helper, the `decideSnapshot()` cache/delta/hint decision logic, the `section`/`around`/`depth` snapshot filtering, the `looksLikeLoading()` smart-wait heuristic, and the Module 8 Framelink-shape optimizations in `test/playguard-core.test.mjs`. `test/design-diff.test.mjs` covers the design-diff side: property extraction from both upstream Figma shapes (REST and Framelink), colour/border/typography normalization, the comparison and tolerance rules, and the generated auto-map script.
+Covers `collapseRuns`, `compactSnap` (including token budget boundary), the full Figma optimizer pipeline (`optimizeFigmaResponse`), the structural budget trim (`budgetTrimFigma`), and the artifact-path plumbing — `withOutputDir`, `figmaLocalPath`, and `resolveUpstream`, which locates the Playwright MCP through the module graph — in `test/playguard.test.mjs`, plus `dead()` crash detection, `splitArgs()` quoting, the shared `ttlCache()` helper, the `decideSnapshot()` cache/delta/hint decision logic, the `section`/`around`/`depth` snapshot filtering, the `looksLikeLoading()` smart-wait heuristic, the `sortDeep()` Figma cache-key normalization, and the Module 8 Framelink-shape optimizations in `test/playguard-core.test.mjs`. `test/design-diff.test.mjs` covers the design-diff side: property extraction from both upstream Figma shapes (REST and Framelink), colour/border/typography normalization, node resolution including the not-found case, the comparison and tolerance rules, and the generated auto-map and eval scripts.
 
 CI (GitHub Actions, `.github/workflows/ci.yml`) runs `npm test` on every push and pull request to `main`.
 

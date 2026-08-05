@@ -11,7 +11,7 @@ import { appendFile, mkdirSync } from "fs";
 import { load as yamlLoad } from "js-yaml";
 import { extractFigmaProperties, buildBrowserEvalScript, normalizeBrowserResponse,
   compareProperties, formatDiffResult, formatBatchResult, autoSelectProperties,
-  collectMappableNodes, buildAutoMapScript, ALL_PROPERTIES, MAX_AUTO_MAP,
+  collectMappableNodes, buildAutoMapScript, resolveFigmaNode, ALL_PROPERTIES, MAX_AUTO_MAP,
   type DesignDiffArgs, type DesignPair, type DesignDiffResult } from "./design-diff.js";
 import {
   splitArgs, VERSION, LOG_DIR, OUTPUT_DIR, PW_CMD, PW_ARGS, FIGMA_CMD, FIGMA_ARGS,
@@ -36,6 +36,18 @@ export { optimizeFigmaResponse, budgetTrimFigma } from "./figma-optimize.js";
 
 type ToolArgs = Record<string, unknown>;
 type ContentItem = { type?: string; text?: string; data?: string };
+
+// Key order must not decide cache identity. JSON.stringify's array replacer can't do
+// this: it is a property allowlist applied at every depth, so it drops nested keys
+// entirely and collapses `nodes: [{nodeId: "1:2"}]` and `nodes: [{nodeId: "9:9"}]`
+// into the same `[{}]` — different calls sharing one cache entry.
+export function sortDeep(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(sortDeep);
+  if (v && typeof v === "object") {
+    return Object.fromEntries(Object.keys(v as object).sort().map(k => [k, sortDeep((v as ToolArgs)[k])]));
+  }
+  return v;
+}
 
 // Random per-process id on every log line: caches are in-memory, so a "miss" on
 // identical args is only a bug if both calls came from the same instance.
@@ -76,6 +88,9 @@ let lastUrl = "";
 const urlHistory: string[] = [];
 
 let snapState: SnapState = { ...emptySnapState };
+// Bumped on every mutating tool, so an in-flight prefetch can tell whether the page
+// it snapshotted is still the page we're on.
+let snapGen = 0;
 
 // ponytail: generic TTL cache — evalCache and figmaCache both need the same
 // get-with-ttl + clear-whole-map-when-full shape, so it's written once.
@@ -155,8 +170,10 @@ function cacheSnapshot(content: Array<{ text?: string }>, fromPrefetch = false):
   return summary;
 }
 
-// ponytail: fire-and-forget — races don't matter, worst case next snapshot call is a miss
+// ponytail: fire-and-forget — a lost prefetch only costs a cache miss, but a LATE one
+// costs correctness, so it's fenced by snapGen instead of left to race.
 async function prefetchSnapshot(): Promise<void> {
+  const gen = snapGen;
   try {
     const c = await getConn();
     let r = await c.callTool({ name: "browser_snapshot", arguments: {} });
@@ -168,7 +185,10 @@ async function prefetchSnapshot(): Promise<void> {
         attempts++;
       }
     }
-    if (!r.isError) cacheSnapshot(r.content as Array<{ text?: string }>, true);
+    // A mutating tool ran while this was in flight: the page has moved on, and writing
+    // this snapshot back would restore pre-action DOM with a fresh timestamp — which the
+    // UNCHANGED shortcut and the 10s screenshot redirect would then serve as current.
+    if (!r.isError && gen === snapGen) cacheSnapshot(r.content as Array<{ text?: string }>, true);
   } catch {}
 }
 
@@ -294,6 +314,13 @@ async function comparePair(
     const fetched = await fetchFigmaNode(fileKey, pair.figmaNodeId);
     if (fetched.error) return { ...blank, error: fetched.error };
     figmaData = fetched.data;
+  }
+
+  // Without this the resolver falls back to the response root (typically the containing
+  // page) and every comparison below reports confident MATCH/MISMATCH rows for an
+  // element the caller never asked about.
+  if (!resolveFigmaNode(figmaData, pair.figmaNodeId).found) {
+    return { ...blank, error: `Figma node ${pair.figmaNodeId} not found in the fetched response` };
   }
 
   const properties = explicitProps ?? autoSelectProperties(figmaData, pair.figmaNodeId);
@@ -520,7 +547,7 @@ server.setRequestHandler(CallToolRequestSchema, async ({ params: { name, argumen
     // agents emit both) — otherwise the same logical call misses the cache.
     const normArgs: ToolArgs = { ...args };
     if (typeof normArgs.nodeId === "string") normArgs.nodeId = normArgs.nodeId.replace(/-/g, ":");
-    const cacheKey = name + "\0" + JSON.stringify(normArgs, Object.keys(normArgs).sort());
+    const cacheKey = name + "\0" + JSON.stringify(sortDeep(normArgs));
     // argsHash in every figma log line proves whether two calls were byte-identical —
     // the difference between "cache is broken" and "the agent varied depth".
     const argsHash = createHash("sha256").update(cacheKey).digest("hex").slice(0, 8);
@@ -654,7 +681,9 @@ server.setRequestHandler(CallToolRequestSchema, async ({ params: { name, argumen
 
   // ── Screenshot → snapshot redirect ─────────────────────────────────────────
   if (name === "browser_take_screenshot" && SCREENSHOTS === "redirect" && !(args as ToolArgs).visual) {
-    if (snapState.hash && snapState.compact && Date.now() - snapState.ts < 10_000) {
+    // filterKey guard: the cached compact may be a section/around/depth subtree, and
+    // handing that back for a whole-page screenshot silently answers a different question.
+    if (snapState.hash && snapState.compact && snapState.filterKey === "{}" && Date.now() - snapState.ts < 10_000) {
       logCall(name, Date.now() - t0, false, { url, redirected: true, cacheHit: true });
       return { content: [{ type: "text", text: "[PlayGuard: snapshot served instead of screenshot (cached). Call with {visual:true} for actual pixels.]\n" + snapState.compact }] };
     }
@@ -744,7 +773,10 @@ server.setRequestHandler(CallToolRequestSchema, async ({ params: { name, argumen
         if (MUTATING.has(name)) {
           // Only invalidate the UNCHANGED/screenshot-redirect shortcuts (both gate on `hash`).
           // Keep `lines`/`url` so the next browser_snapshot can still delta against pre-action state.
-          snapState = { ...snapState, hash: null, compact: null };
+          // withoutAction resets here — an action just happened, and without this the counter
+          // is really "total snapshots" and the hint it triggers claims something untrue.
+          snapState = { ...snapState, hash: null, compact: null, withoutAction: 0 };
+          snapGen++;
         }
         if (EVAL_INVALIDATING.has(name)) {
           evalCache.clear();

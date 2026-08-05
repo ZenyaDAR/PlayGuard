@@ -103,7 +103,9 @@ export function compactSnap(content: Array<{ text?: string }>, opts: { compact?:
   const keptText = collapsed.join("\n");
   const rawBytes = Buffer.byteLength(rawText);
   const keptBytes = Buffer.byteLength(keptText);
-  const pct = lines.length > 0 ? Math.round((1 - kept.length / lines.length) * 100) : 0;
+  // Count the lines actually handed over — collapseRuns rewrites runs into
+  // `[×N more similar elements]`, so `kept.length` would advertise a body we never sent.
+  const pct = lines.length > 0 ? Math.round((1 - collapsed.length / lines.length) * 100) : 0;
 
   const headerOpts = [];
   if (opts.section) headerOpts.push(`section: ${opts.section}`);
@@ -113,7 +115,7 @@ export function compactSnap(content: Array<{ text?: string }>, opts: { compact?:
   const warnStr = warning ? `[PlayGuard: ${warning} not found. Returning full snapshot.]\n` : "";
 
   const result = {
-    text: warnStr + `[PlayGuard compact${headerCtx}: ${kept.length}/${lines.length} lines, ~${pct}% removed, ${(rawBytes / 1024).toFixed(1)}KB→${(keptBytes / 1024).toFixed(1)}KB]\n` + keptText,
+    text: warnStr + `[PlayGuard compact${headerCtx}: ${collapsed.length}/${lines.length} lines, ~${pct}% removed, ${(rawBytes / 1024).toFixed(1)}KB→${(keptBytes / 1024).toFixed(1)}KB]\n` + keptText,
     rawBytes,
     keptBytes,
   };

@@ -1,5 +1,49 @@
 # Changelog
 
+## 0.6.2 — 2026-08-05
+
+### Fixed
+- Two different Figma calls could share one cache entry. The cache key was built
+  with `JSON.stringify`'s array replacer, which is a property allowlist applied
+  at every depth rather than a key ordering, so every nested key was dropped and
+  `download_figma_images` for two different node sets both serialized to
+  `{"fileKey":…,"nodes":[{}]}`. With `FIGMA_CACHE_TTL` set, the second call got
+  the first one's images. `argsHash` in the analytics log inherited the same
+  blindness and reported the two calls as byte-identical.
+- The "N snapshots without action" hint fired even when the agent acted between
+  every snapshot: the counter was incremented on every snapshot and never reset,
+  so past `PLAYGUARD_HINT_THRESHOLD` it was really counting total snapshots and
+  the message it injected was untrue. It now resets whenever a mutating tool
+  succeeds, which is what the documented behavior always claimed.
+- With `PLAYGUARD_SCREENSHOTS=redirect`, a `browser_take_screenshot` could be
+  answered with a `section`/`around`/`depth`-filtered subtree left in the cache
+  by an earlier filtered snapshot — a different question than the one asked. The
+  cached redirect now requires an unfiltered cache entry.
+- The background prefetch after `browser_navigate` could land after a mutating
+  tool had already invalidated the cache, writing pre-action DOM back with a
+  fresh timestamp for the `UNCHANGED` shortcut and the screenshot redirect to
+  serve as current. Late prefetches are now discarded.
+- A `figmaNodeId` that matched nothing in the fetched response fell back to the
+  response root, so the diff compared the containing page's background, padding
+  and radius against the caller's selector and reported confident MATCH/MISMATCH
+  rows for an element nobody asked about. A miss is now a pair error.
+- Every ordinary left-aligned text layer reported a false `left → start`
+  mismatch: `getComputedStyle` returns the logical `start`/`end` for anything
+  without an explicit `text-align`, and `textAlign` has no CSS zero-default to
+  drop it from the auto-selected set. `start`/`end` now normalize to
+  `left`/`right` (LTR).
+- A `browserSelector` containing a line break — as it does when pasted out of a
+  formatted CSS block — ended the generated eval script's string literal early
+  and failed the pair with an opaque `browser error:` instead of a clean
+  "element not found".
+- A malformed numeric env var silently disabled the feature it configured rather
+  than falling back. `PLAYGUARD_SMART_WAIT_MS=1s` parsed to `NaN`, and
+  `setTimeout(res, NaN)` fires immediately while `attempts < NaN` is always
+  false, so smart-wait burned its retries with no delay — or never ran at all.
+  All numeric variables now fall back to their documented default.
+- The compact snapshot header counted lines before runs were collapsed into
+  `[×N more similar elements]`, advertising a body that was never sent.
+
 ## 0.6.1 — 2026-07-18
 
 ### Fixed

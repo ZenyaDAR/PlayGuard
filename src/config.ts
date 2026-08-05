@@ -17,30 +17,39 @@ export function splitArgs(s: string): string[] {
       ? a.slice(1, -1) : a);
 }
 
+// A malformed dial (PLAYGUARD_SMART_WAIT_MS=1s) must fall back to the default, not
+// to NaN: `setTimeout(res, NaN)` fires immediately and `attempts < NaN` is always
+// false, so the feature silently turns itself off instead of failing loudly.
+function num(v: string | undefined, dflt: number, parse: (s: string) => number = parseInt): number {
+  if (v === undefined) return dflt;
+  const n = parse(v);
+  return Number.isNaN(n) ? dflt : n;
+}
+
 export const SCREENSHOTS = process.env.PLAYGUARD_SCREENSHOTS ?? "warn"; // block | warn | allow | redirect
 // ponytail: compact on by default — strips non-interactive lines, set =false to get raw snapshots
 export const COMPACT = process.env.PLAYGUARD_COMPACT !== "false";
-export const TOKEN_BUDGET = parseInt(process.env.PLAYGUARD_TOKEN_BUDGET ?? "0"); // 0 = off
-export const EVAL_CACHE_TTL = parseInt(process.env.PLAYGUARD_EVAL_CACHE_TTL ?? "500"); // ms; 0 = off
+export const TOKEN_BUDGET = num(process.env.PLAYGUARD_TOKEN_BUDGET, 0); // 0 = off
+export const EVAL_CACHE_TTL = num(process.env.PLAYGUARD_EVAL_CACHE_TTL, 500); // ms; 0 = off
 export const PREFETCH_SNAPSHOT = process.env.PLAYGUARD_PREFETCH_SNAPSHOT !== "false"; // default on
 export const SMART_WAIT = process.env.PLAYGUARD_SMART_WAIT === "1" || process.env.PLAYGUARD_SMART_WAIT === "true"; // default off
-export const SMART_WAIT_MS = parseInt(process.env.PLAYGUARD_SMART_WAIT_MS ?? "1000");
-export const SMART_WAIT_MAX_RETRIES = parseInt(process.env.PLAYGUARD_SMART_WAIT_MAX_RETRIES ?? "3");
-export const SMART_WAIT_MIN_REFS = parseInt(process.env.PLAYGUARD_SMART_WAIT_MIN_REFS ?? "5");
-export const EVAL_COMPACT_THRESHOLD = parseInt(process.env.PLAYGUARD_EVAL_COMPACT ?? "10000"); // chars; 0 = off
+export const SMART_WAIT_MS = num(process.env.PLAYGUARD_SMART_WAIT_MS, 1000);
+export const SMART_WAIT_MAX_RETRIES = num(process.env.PLAYGUARD_SMART_WAIT_MAX_RETRIES, 3);
+export const SMART_WAIT_MIN_REFS = num(process.env.PLAYGUARD_SMART_WAIT_MIN_REFS, 5);
+export const EVAL_COMPACT_THRESHOLD = num(process.env.PLAYGUARD_EVAL_COMPACT, 10000); // chars; 0 = off
 export const FIGMA_MCP_CMD = process.env.FIGMA_MCP_CMD; // undefined = Figma disabled
-export const FIGMA_CACHE_TTL = parseInt(process.env.FIGMA_CACHE_TTL ?? "0"); // ms; 0 = off
+export const FIGMA_CACHE_TTL = num(process.env.FIGMA_CACHE_TTL, 0); // ms; 0 = off
 export const FIGMA_SVG_REFS = process.env.FIGMA_SVG_REFS !== "false"; // default on: replace inline SVG with lightweight refs
 // Some Figma MCPs (e.g. Framelink figma-developer-mcp) pre-simplify to YAML/markdown text
 // instead of raw REST-API JSON, so optimizeFigmaResponse's modules never fire on them —
 // this is the fallback that still saves tokens on that path. chars; 0 = off
-export const FIGMA_TEXT_COMPACT = parseInt(process.env.FIGMA_TEXT_COMPACT ?? "10000");
-export const DESIGN_DIFF_TOLERANCE_PX = parseInt(process.env.PLAYGUARD_DESIGN_DIFF_TOLERANCE_PX ?? "2");
-export const DESIGN_DIFF_TOLERANCE_COLOR = parseInt(process.env.PLAYGUARD_DESIGN_DIFF_TOLERANCE_COLOR ?? "5");
+export const FIGMA_TEXT_COMPACT = num(process.env.FIGMA_TEXT_COMPACT, 10000);
+export const DESIGN_DIFF_TOLERANCE_PX = num(process.env.PLAYGUARD_DESIGN_DIFF_TOLERANCE_PX, 2);
+export const DESIGN_DIFF_TOLERANCE_COLOR = num(process.env.PLAYGUARD_DESIGN_DIFF_TOLERANCE_COLOR, 5);
 
-export const DELTA_THRESHOLD = parseFloat(process.env.PLAYGUARD_DELTA_THRESHOLD ?? "0.4");
+export const DELTA_THRESHOLD = num(process.env.PLAYGUARD_DELTA_THRESHOLD, 0.4, parseFloat);
 export const DELTA_ENABLED = process.env.PLAYGUARD_DELTA !== "false";
-export const HINT_THRESHOLD = parseInt(process.env.PLAYGUARD_HINT_THRESHOLD ?? "4");
+export const HINT_THRESHOLD = num(process.env.PLAYGUARD_HINT_THRESHOLD, 4);
 
 export const __dir = dirname(fileURLToPath(import.meta.url));
 

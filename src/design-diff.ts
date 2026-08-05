@@ -195,9 +195,13 @@ const normId = (id: string) => id.replace(/-/g, ":");
 // Unwraps the several envelopes an upstream may return: raw REST
 // (`{nodes: {"42:1337": {document: {…}}}}` or `{document: {…}}`) and Framelink
 // (`{nodes: [{id, …}], globalVars: {…}}`).
-export function resolveFigmaNode(data: any, nodeId?: string): { node: AnyRec; globalVars: AnyRec } {
+// `found` is false when a nodeId was asked for and nothing in the response carries
+// it. The node still falls back to the root so listing callers keep working, but a
+// caller that compares properties must not: it would report confident MATCH/MISMATCH
+// rows for the containing page instead of the element the user named.
+export function resolveFigmaNode(data: any, nodeId?: string): { node: AnyRec; globalVars: AnyRec; found: boolean } {
   const globalVars: AnyRec = (data && typeof data === "object" && data.globalVars) || {};
-  if (!data || typeof data !== "object") return { node: {}, globalVars };
+  if (!data || typeof data !== "object") return { node: {}, globalVars, found: !nodeId };
 
   const want = nodeId ? normId(nodeId) : undefined;
   const nodes = data.nodes;
@@ -216,9 +220,9 @@ export function resolveFigmaNode(data: any, nodeId?: string): { node: AnyRec; gl
   // parent component once and then resolves each descendant out of that one tree.
   if (want && normId(String(root.id ?? "")) !== want) {
     const hit = findNodeById(root, want);
-    if (hit) return { node: hit, globalVars };
+    return hit ? { node: hit, globalVars, found: true } : { node: root, globalVars, found: false };
   }
-  return { node: root, globalVars };
+  return { node: root, globalVars, found: true };
 }
 
 function findNodeById(node: AnyRec, want: string): AnyRec | null {
@@ -556,7 +560,10 @@ export function extractFigmaProperties(nodeData: any, properties: string[], node
 
 // ── Browser evaluate script builder ─────────────────────────────────────
 export function buildBrowserEvalScript(selector: string, properties: string[]): string {
-  const escaped = selector.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+  // JSON.stringify, not hand-rolled escaping: a selector pasted out of a formatted
+  // CSS block carries a raw newline, which ends the string literal mid-script and
+  // turns "element not found" into an opaque SyntaxError from the page eval.
+  const lit = JSON.stringify(selector);
   // Whitelist: `properties` flows from tool arguments straight into generated
   // JS below (`s.${p}`) — an unfiltered value would let a caller break out of
   // the object literal and inject arbitrary code into the page's eval context.
@@ -588,8 +595,8 @@ export function buildBrowserEvalScript(selector: string, properties: string[]): 
   propExtractions.push("_viewport: JSON.stringify({width: window.innerWidth, height: window.innerHeight})");
 
   return `(() => {
-    const el = document.querySelector('${escaped}');
-    if (!el) return { _error: 'Element not found: ${escaped}' };
+    const el = document.querySelector(${lit});
+    if (!el) return { _error: 'Element not found: ' + ${lit} };
     const s = getComputedStyle(el);
     return { ${propExtractions.join(", ")} };
   })()`;
@@ -636,6 +643,14 @@ export function normalizeBrowserResponse(data: Record<string, any>, properties: 
         break;
       case "borderStyle":
         result.borderStyle = data.borderStyle === "none none none none" ? "none" : (data.borderStyle || null);
+        break;
+      // getComputedStyle returns the logical `start`/`end` for anything without an
+      // explicit text-align, so Figma's LEFT would mismatch on every ordinary text
+      // layer. ponytail: LTR assumed — flip these if RTL pages ever get compared.
+      case "textAlign":
+        result.textAlign = data.textAlign === "start" ? "left"
+          : data.textAlign === "end" ? "right"
+          : data.textAlign != null ? String(data.textAlign) : null;
         break;
       case "textDecoration":
         result.textDecoration = typeof data.textDecoration === "string" 

@@ -92,17 +92,23 @@ let snapState: SnapState = { ...emptySnapState };
 // it snapshotted is still the page we're on.
 let snapGen = 0;
 
-// ponytail: generic TTL cache — evalCache and figmaCache both need the same
-// get-with-ttl + clear-whole-map-when-full shape, so it's written once.
+// ponytail: generic TTL + LRU cache — evalCache and figmaCache both need the same
+// shape, so it's written once. LRU comes free from Map's insertion order: re-inserting
+// on hit moves a key to the back, so keys().next() is always the least recently used.
 export function ttlCache<T>(maxEntries: number) {
   const map = new Map<string, { result: T; ts: number }>();
   return {
     get(key: string, ttlMs: number): T | undefined {
       const hit = map.get(key);
-      return hit && Date.now() - hit.ts < ttlMs ? hit.result : undefined;
+      if (!hit) return undefined;
+      map.delete(key);
+      if (Date.now() - hit.ts >= ttlMs) return undefined; // expired: dropped, not refreshed
+      map.set(key, hit);
+      return hit.result;
     },
     set(key: string, result: T): void {
-      if (map.size >= maxEntries) map.clear();
+      map.delete(key);
+      if (map.size >= maxEntries) map.delete(map.keys().next().value as string);
       map.set(key, { result, ts: Date.now() });
     },
     clear(): void { map.clear(); },
@@ -110,7 +116,7 @@ export function ttlCache<T>(maxEntries: number) {
 }
 
 // Eval deduplication cache — keyed by hash(url + script), TTL = EVAL_CACHE_TTL ms
-// ponytail: unbounded long-running sessions would grow this forever; cap by size instead of an LRU
+// ponytail: unbounded long-running sessions would grow this forever; capped by size, LRU eviction
 const CACHE_MAX_ENTRIES = 500;
 const evalCache = ttlCache<Awaited<ReturnType<Client["callTool"]>>>(CACHE_MAX_ENTRIES);
 

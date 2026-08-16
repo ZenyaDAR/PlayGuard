@@ -54,12 +54,13 @@ test("ttlCache returns a value within TTL and not after it expires", async () =>
   assert.equal(cache.get("k", 10), undefined);
 });
 
-test("ttlCache clears the whole map once maxEntries is reached", () => {
+test("ttlCache evicts only the least recently used entry once maxEntries is reached", () => {
   const cache = ttlCache(2);
   cache.set("a", 1);
   cache.set("b", 2);
-  cache.set("c", 3); // map was full (size 2) -> clears, then inserts c
-  assert.equal(cache.get("a", 10_000), undefined);
+  cache.get("a", 10_000); // "a" is now the most recently used, "b" the least
+  cache.set("c", 3); // full -> evicts "b" only
+  assert.equal(cache.get("a", 10_000), 1);
   assert.equal(cache.get("b", 10_000), undefined);
   assert.equal(cache.get("c", 10_000), 3);
 });

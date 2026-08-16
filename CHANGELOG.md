@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.3 — 2026-08-16
+
+### Changed
+- The shared `ttlCache()` behind the eval and Figma caches now evicts the least
+  recently used entry instead of emptying itself. Reaching `maxEntries` used to
+  throw away all 500 entries at once, so the hot key an agent was hitting on
+  every step died along with the cold ones and the next call was a full miss —
+  the worst behavior exactly when the cache was under the most load. Expired
+  entries are also dropped on read now rather than sitting there until the next
+  overflow. Reported in #1.
+
 ## 0.6.2 — 2026-08-05
 
 ### Fixed

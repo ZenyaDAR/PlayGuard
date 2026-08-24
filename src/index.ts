@@ -5,7 +5,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { ListToolsRequestSchema, CallToolRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
-import { resolve, isAbsolute } from "path";
+import { resolve, isAbsolute, sep } from "path";
 import { createHash } from "crypto";
 import { appendFile, mkdirSync } from "fs";
 import { load as yamlLoad } from "js-yaml";
@@ -14,7 +14,7 @@ import { extractFigmaProperties, buildBrowserEvalScript, normalizeBrowserRespons
   collectMappableNodes, buildAutoMapScript, resolveFigmaNode, ALL_PROPERTIES, MAX_AUTO_MAP,
   type DesignDiffArgs, type DesignPair, type DesignDiffResult } from "./design-diff.js";
 import {
-  splitArgs, VERSION, LOG_DIR, OUTPUT_DIR, PW_CMD, PW_ARGS, FIGMA_CMD, FIGMA_ARGS,
+  splitArgs, VERSION, LOG_DIR, FIGMA_DIR, PW_CMD, PW_ARGS, FIGMA_CMD, FIGMA_ARGS,
   SCREENSHOTS, COMPACT, EVAL_CACHE_TTL, PREFETCH_SNAPSHOT,
   SMART_WAIT, SMART_WAIT_MS, SMART_WAIT_MAX_RETRIES, EVAL_COMPACT_THRESHOLD,
   FIGMA_MCP_CMD, FIGMA_CACHE_TTL, FIGMA_TEXT_COMPACT,
@@ -223,13 +223,20 @@ async function getFigmaConn(): Promise<Client> {
 }
 
 // Figma image downloads write to a caller-supplied directory (Framelink's
-// download_figma_images uses `localPath`). A relative one lands in the child's cwd
-// (project root); anchor it under OUTPUT_DIR/figma so images join the rest.
-// Returns null when the arg should be passed through untouched — an absolute path
-// is the caller being explicit, and a missing/empty one leaves the upstream default.
-export function figmaLocalPath(localPath: unknown, outputDir: string): string | null {
-  if (typeof localPath !== "string" || !localPath || isAbsolute(localPath)) return null;
-  return resolve(outputDir, "figma", localPath);
+// download_figma_images uses `localPath`). A relative one lands in the child's cwd —
+// wherever the client happened to spawn us — so anchor it under `.playguard/.figma`.
+// A missing/empty arg is the same problem, and gets the bare figma dir. Returns null
+// only for an absolute path: that's the caller being explicit, so it passes through.
+export function figmaLocalPath(localPath: unknown, figmaDir: string): string | null {
+  // Normalize the base first: the containment check below is a string compare, and
+  // `/out/.figma` vs `C:\out\.figma` would fail it and clamp every legitimate path.
+  const base = resolve(figmaDir);
+  if (typeof localPath !== "string" || !localPath) return base;
+  if (isAbsolute(localPath)) return null;
+  // `../../x` resolves clean out of the artifact dir and back into the project — an
+  // agent-supplied relative path must not be able to write outside `.figma`.
+  const out = resolve(base, localPath);
+  return out === base || out.startsWith(base + sep) ? out : base;
 }
 
 // ── Design diff ────────────────────────────────────────────────────────────────
@@ -572,7 +579,10 @@ server.setRequestHandler(CallToolRequestSchema, async ({ params: { name, argumen
     try {
       const c = await getFigmaConn();
       let callArgs = args;
-      const figmaDir = figmaLocalPath((args as ToolArgs).localPath, OUTPUT_DIR);
+      // Only tools that actually take a localPath get one injected — adding an unknown
+      // property to, say, get_figma_data would be rejected by a strict upstream schema.
+      const takesLocalPath = (args as ToolArgs)?.localPath !== undefined || /image|download/i.test(name);
+      const figmaDir = takesLocalPath ? figmaLocalPath((args as ToolArgs)?.localPath, FIGMA_DIR) : null;
       if (figmaDir) {
         mkdirSync(figmaDir, { recursive: true });
         callArgs = { ...args, localPath: figmaDir };

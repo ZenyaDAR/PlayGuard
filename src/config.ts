@@ -58,12 +58,45 @@ export const VERSION: string = JSON.parse(readFileSync(resolve(__dir, "..", "pac
 export const LOG_DIR = process.env.PLAYGUARD_LOG_DIR || resolve(__dir, "..", "logs");
 mkdirSync(LOG_DIR, { recursive: true });
 
-// One home for every on-disk artifact (screenshots, traces, PDFs, downloads,
-// session, Figma images) — instead of the upstream default `.playwright-mcp`
-// plus stray screenshots in the project root. process.cwd() is the project root
-// (it's where those files land today); override with PLAYGUARD_OUTPUT_DIR.
-export const OUTPUT_DIR = process.env.PLAYGUARD_OUTPUT_DIR || resolve(process.cwd(), ".playguard");
-mkdirSync(OUTPUT_DIR, { recursive: true });
+// process.cwd() is NOT reliably the project root: an MCP client spawns the server
+// with whatever cwd it likes (its own install dir, `/`, the user's home), so anchoring
+// artifacts on cwd scattered them almost at random. Walk up from cwd to the nearest
+// directory that looks like a project root instead, and let the caller pin it outright.
+export function findProjectRoot(start: string): string {
+  for (let dir = start; ;) {
+    if (existsSync(resolve(dir, ".git")) || existsSync(resolve(dir, "package.json"))) return dir;
+    const up = dirname(dir);
+    if (up === dir) return start; // hit the filesystem root without a marker
+    dir = up;
+  }
+}
+export const PROJECT_ROOT = process.env.PLAYGUARD_PROJECT_ROOT || findProjectRoot(process.cwd());
+
+// Landing on our own install directory means cwd was never a user project (a global
+// install, an npx cache, the client's own folder) — the walk-up then just finds
+// PlayGuard's package.json. Nothing to fall back to, so say so instead of silently
+// writing artifacts into node_modules.
+if (resolve(PROJECT_ROOT) === resolve(__dir, ".."))
+  process.stderr.write(
+    "[PlayGuard] artifact root resolved to PlayGuard's own install dir — the MCP client " +
+    "spawned this server outside a project. Set PLAYGUARD_PROJECT_ROOT to your project root.\n");
+
+// One home for every on-disk artifact, split by origin so the two never mix:
+//   .playguard/.figma  — everything coming from Figma (exported images)
+//   .playguard/.qa     — everything coming from the site under test (screenshots,
+//                        traces, PDFs, downloads, session state)
+// instead of the upstream default `.playwright-mcp` plus stray files in the root.
+export const OUTPUT_DIR = process.env.PLAYGUARD_OUTPUT_DIR || resolve(PROJECT_ROOT, ".playguard");
+export const FIGMA_DIR = resolve(OUTPUT_DIR, ".figma");
+export const QA_DIR = resolve(OUTPUT_DIR, ".qa");
+// An unwritable root must not take the whole server down at import time: snapshots,
+// the main feature, need no disk at all. Report it and let the writes fail later.
+try {
+  mkdirSync(FIGMA_DIR, { recursive: true });
+  mkdirSync(QA_DIR, { recursive: true });
+} catch (e) {
+  process.stderr.write(`[PlayGuard] could not create ${OUTPUT_DIR}: ${e}\n`);
+}
 
 // Find the upstream through Node's own module resolution and run its entry with
 // the node binary we're already running. Locating it by shim instead — a
@@ -94,7 +127,7 @@ const [rawCmd, baseArgs]: [string, string[]] = process.env.PLAYWRIGHT_MCP_CMD
   : resolveUpstream() ?? [existsSync(localBin) ? localBin : binName, []];
 const extraArgs = process.env.PLAYWRIGHT_MCP_ARGS ? splitArgs(process.env.PLAYWRIGHT_MCP_ARGS) : [];
 
-// Point Playwright MCP's output at OUTPUT_DIR — but respect an explicit --output-dir
+// Point Playwright MCP's output at QA_DIR — but respect an explicit --output-dir
 // the user already passed in PLAYWRIGHT_MCP_ARGS, in either `--output-dir X` or
 // `--output-dir=X` form. Missing the `=` form would append a second flag and let
 // ours silently win on last-flag-wins parsing, contradicting the documented precedence.
@@ -105,7 +138,7 @@ export function withOutputDir(args: string[], dir: string): string[] {
 // Run the command directly and let cross-spawn (used inside the MCP SDK) handle .cmd/.bat
 // invocation. A manual `cmd /c` wrapper mangles args with spaces — cmd's quote-stripping
 // splits an --output-dir path like "…\Рабочий стол\…" mid-path.
-export const [PW_CMD, PW_ARGS]: [string, string[]] = [rawCmd, withOutputDir([...baseArgs, ...extraArgs], OUTPUT_DIR)];
+export const [PW_CMD, PW_ARGS]: [string, string[]] = [rawCmd, withOutputDir([...baseArgs, ...extraArgs], QA_DIR)];
 
 const figmaExtraArgs = process.env.FIGMA_MCP_ARGS ? splitArgs(process.env.FIGMA_MCP_ARGS) : [];
 export const [FIGMA_CMD, FIGMA_ARGS]: [string, string[]] = FIGMA_MCP_CMD

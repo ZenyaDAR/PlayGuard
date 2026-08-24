@@ -280,7 +280,8 @@ Use forward slashes in JSON strings. Spaces in paths do not need escaping:
 | `PLAYGUARD_EVAL_COMPACT` | `10000` | Max characters for eval output. `0` = off |
 | `PLAYWRIGHT_MCP_CMD` | bundled binary | Override the Playwright MCP command |
 | `PLAYWRIGHT_MCP_ARGS` | — | Extra arguments passed to Playwright MCP (space-separated; wrap an argument in `"..."` or `'...'` if it contains a space, e.g. a path). Passing `--output-dir` here takes precedence over `PLAYGUARD_OUTPUT_DIR` |
-| `PLAYGUARD_OUTPUT_DIR` | `.playguard/` | Where all on-disk artifacts go — screenshots, traces, PDFs, downloads, session, and Figma images (under `figma/`). Defaults to `.playguard/` in the project root instead of the upstream's `.playwright-mcp/` |
+| `PLAYGUARD_OUTPUT_DIR` | `.playguard/` | Where all on-disk artifacts go, split by origin: `.playguard/.qa/` for everything from the site under test (screenshots, traces, PDFs, downloads, session) and `.playguard/.figma/` for Figma image exports. Defaults to `.playguard/` in the project root instead of the upstream's `.playwright-mcp/` |
+| `PLAYGUARD_PROJECT_ROOT` | nearest `.git`/`package.json` above `cwd` | The root `.playguard/` is created in. `process.cwd()` is whatever the MCP client spawned the server with, so it is not trusted; set this to pin the location outright |
 | `PLAYGUARD_LOG_DIR` | `logs/` | Override the NDJSON analytics log directory |
 
 ### Figma
@@ -432,7 +433,9 @@ playguard/
 │   └── design-diff.test.mjs        Property extraction, comparison, auto-map
 ├── .github/workflows/ci.yml        Runs npm test on push/PR
 ├── logs/                           Per-day NDJSON call logs (auto-created at runtime)
-├── .playguard/                     Screenshots, traces, PDFs, Figma images (auto-created)
+├── .playguard/                     Auto-created artifact root
+│   ├── .qa/                        Screenshots, traces, PDFs, downloads from the site under test
+│   └── .figma/                     Figma image exports
 ├── package.json
 └── tsconfig.json
 ```

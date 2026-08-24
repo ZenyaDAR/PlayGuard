@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.7.0 — 2026-08-24
+
+### Changed
+- Artifacts are now split by origin: `.playguard/.qa/` holds everything produced
+  by the site under test (screenshots, traces, PDFs, downloads, saved session)
+  and `.playguard/.figma/` holds Figma image exports. They used to share one
+  flat directory, which also meant Figma exports sat inside Playwright MCP's
+  output dir and were eligible for its `outputMaxSize` eviction — that sweep
+  lists files recursively and unlinks the oldest, so a downloaded design asset
+  could be deleted to make room for a screenshot. **Breaking for anyone who set
+  `PLAYGUARD_OUTPUT_DIR`:** files now land one level deeper, in `.qa/`.
+
+### Fixed
+- `.playguard/` was anchored on `process.cwd()`, which for an MCP server is
+  whatever directory the client happened to spawn it from — its own install
+  folder, the user's home, `/`. Artifacts landed somewhere different depending
+  on the client. The root is now the nearest ancestor of `cwd` holding a `.git`
+  or `package.json`, overridable with `PLAYGUARD_PROJECT_ROOT`, and PlayGuard
+  says so on stderr when that walk-up only finds its own install directory.
+- Figma image downloads with no `localPath` were passed through untouched, so
+  the upstream wrote them into its own cwd instead of the project. They now
+  default to `.playguard/.figma/`. A relative `localPath` is also clamped to
+  that directory — `../../x` used to resolve straight back out into the project.
+- An unwritable artifact root no longer kills the server at startup. Snapshots,
+  the main feature, need no disk.
+
 ## 0.6.3 — 2026-08-16
 
 ### Changed

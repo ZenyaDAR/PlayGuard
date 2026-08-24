@@ -6,12 +6,14 @@ process.env.FIGMA_SVG_REFS = "true";
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isAbsolute, join } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
 
 const { collapseRuns, compactSnap, optimizeFigmaResponse, budgetTrimFigma,
   withOutputDir, figmaLocalPath } = await import("../dist/index.js");
-const { resolveUpstream } = await import("../dist/config.js");
+const { resolveUpstream, findProjectRoot } = await import("../dist/config.js");
+const repoRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 
 const refLine = (i) => `- button "label ${i}" [ref=${i}]`;
 
@@ -242,21 +244,37 @@ test("withOutputDir does not mutate the array it is given", () => {
   assert.deepEqual(args, ["--headless"], "PW_ARGS must not leak a mutation back into the caller");
 });
 
-test("figmaLocalPath anchors a relative path under OUTPUT_DIR/figma", () => {
-  const out = figmaLocalPath("icons", "/out");
-  assert.ok(out.endsWith(join("figma", "icons")), `expected .../figma/icons, got ${out}`);
+test("figmaLocalPath anchors a relative path under the figma dir", () => {
+  const out = figmaLocalPath("icons", "/out/.figma");
+  assert.ok(out.endsWith(join(".figma", "icons")), `expected .../.figma/icons, got ${out}`);
   assert.ok(isAbsolute(out));
+});
+
+test("figmaLocalPath falls back to the figma dir when the arg is missing or empty", () => {
+  // Without this the upstream writes into its own cwd — whatever the MCP client chose.
+  for (const v of [undefined, "", null, 42])
+    assert.equal(figmaLocalPath(v, "/out/.figma"), resolve("/out/.figma"));
+});
+
+test("figmaLocalPath refuses to escape the figma dir", () => {
+  const dir = resolve("/out/.figma");
+  for (const evil of ["../../evil", "a/../../../evil", ".."])
+    assert.equal(figmaLocalPath(evil, dir), dir, `${evil} must be clamped to the figma dir`);
+  // A path that merely shares a prefix is not inside it either.
+  assert.equal(figmaLocalPath("../.figma-evil", dir), dir);
 });
 
 test("figmaLocalPath passes an absolute path through untouched", () => {
   // Both forms are absolute under path.win32 and path.posix alike.
-  assert.equal(figmaLocalPath("/tmp/icons", "/out"), null, "an absolute path is the caller being explicit");
+  assert.equal(figmaLocalPath("/tmp/icons", "/out/.figma"), null, "an absolute path is the caller being explicit");
   if (process.platform === "win32")
-    assert.equal(figmaLocalPath("C:/tmp/icons", "/out"), null, "a drive-qualified path is absolute too");
+    assert.equal(figmaLocalPath("C:/tmp/icons", "/out/.figma"), null, "a drive-qualified path is absolute too");
 });
 
-test("figmaLocalPath ignores a missing, empty, or non-string localPath", () => {
-  assert.equal(figmaLocalPath(undefined, "/out"), null);
-  assert.equal(figmaLocalPath("", "/out"), null, "empty string must not resolve to the figma dir itself");
-  assert.equal(figmaLocalPath(42, "/out"), null);
+test("findProjectRoot walks up to the nearest package.json/.git marker", () => {
+  // The server's cwd is whatever the client spawned it with; a nested dir must still
+  // resolve to this repo's root rather than planting .playguard inside test/.
+  assert.equal(findProjectRoot(join(repoRoot, "test")), repoRoot);
+  assert.equal(findProjectRoot(repoRoot), repoRoot);
 });
+

@@ -1,0 +1,36 @@
+# PlayGuard
+
+> An MCP proxy that sits between an AI agent and the tools it drives. It wraps Playwright MCP and, optionally, a Figma MCP behind a single MCP server, and on the way through it recovers crashed browser sessions, compacts accessibility snapshots by 70-90%, and strips metadata, invisible layers, duplicate component instances, and SVG geometry out of Figma responses.
+
+PlayGuard is free and MIT licensed, runs locally over stdio, requires Node.js 18+, and is installed by adding one entry to an MCP client config — no separate Playwright MCP installation, because it is bundled and spawned by PlayGuard itself. It works with Claude Code, Claude Desktop, Cursor, Codex, and any other MCP-compatible client.
+
+Install:
+
+```json
+{
+  "mcpServers": {
+    "playguard": {
+      "command": "npx",
+      "args": ["-y", "playguard"],
+      "env": { "PLAYGUARD_SCREENSHOTS": "redirect" }
+    }
+  }
+}
+```
+
+## What it does
+
+- **Session recovery** — dead-session errors (`Target.*closed`, `Browser.*closed`, `connect ECONNREFUSED`, `crashed`) are intercepted before the agent sees them; Playwright MCP is restarted, the last URL restored, and the call retried.
+- **Snapshot compaction** — only lines carrying a `[ref=]` handle plus structural landmarks are kept, typically removing 70-90% of an accessibility tree. `PLAYGUARD_COMPACT=false` returns the raw tree.
+- **Delta snapshots, cache, prefetch** — small page changes return a diff; a snapshot is prefetched after `browser_navigate`; an unchanged page returns `UNCHANGED` without touching the browser.
+- **Figma optimization** — eight modules strip irrelevant metadata, invisible layers, duplicate component instances, inline SVG geometry, and redundant Auto Layout coordinates, with structural budget trimming that leaves re-fetchable stubs rather than dropping branches.
+- **Design diff** — `playguard_compare_design` compares a Figma node against the live DOM element implementing it and reports per-property mismatches numerically.
+- **Screenshot policy** — `allow`, `warn` (default), `block`, or `redirect` (screenshot replaced by a snapshot, with `{visual:true}` as the escape hatch).
+- **Analytics** — every call is logged as NDJSON; `npm run analyze` reports cache hits, bytes and tokens saved, and per-tool latency percentiles.
+
+## Links
+
+- [Overview](https://playguard.dev/): what PlayGuard is, with before/after examples and setup.
+- [How PlayGuard works](https://playguard.dev/docs/): full technical walkthrough — architecture, compaction, session recovery, the eight Figma modules, design diff, and every environment variable.
+- [Source on GitHub](https://github.com/ZenyaDAR/PlayGuard): MIT licensed, tests run in CI on every push.
+- [Package on npm](https://www.npmjs.com/package/playguard): `npx -y playguard`.

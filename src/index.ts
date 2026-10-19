@@ -206,7 +206,11 @@ async function spawnFigmaConn(): Promise<Client> {
   for (const [k, v] of Object.entries(process.env)) {
     if (k.startsWith("FIGMA_") && v) env[k] = v;
   }
-  const t = new StdioClientTransport({ command: FIGMA_CMD, args: FIGMA_ARGS, env: Object.keys(env).length ? env : undefined });
+  // Framelink >=0.13 defaults to a "tree" text format that is neither JSON nor YAML, so the
+  // optimizer silently skipped every response (parseSkip: "parse-error"). Ask for JSON unless
+  // the user chose a format; other Figma MCPs ignore this variable.
+  env.OUTPUT_FORMAT = process.env.OUTPUT_FORMAT || "json";
+  const t = new StdioClientTransport({ command: FIGMA_CMD, args: FIGMA_ARGS, env });
   const c = new Client({ name: "playguard-figma", version: VERSION });
   await c.connect(t);
   return c;
@@ -595,7 +599,7 @@ server.setRequestHandler(CallToolRequestSchema, async ({ params: { name, argumen
       let textStubbed = 0;
       let parsedData: any;
       // Why the response wasn't optimized — surfaces the upstream/format mismatch
-      // (Framelink defaults to YAML; this optimizer expects raw REST-API JSON) instead
+      // (e.g. Framelink run with OUTPUT_FORMAT=tree, which parses as neither JSON nor YAML) instead
       // of swallowing it. If this is consistently set, the optimizer is a no-op.
       let parseSkip: "no-json-item" | "parse-error" | undefined;
       if (!r.isError) {

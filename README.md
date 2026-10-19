@@ -117,7 +117,7 @@ PlayGuard intercepts Figma MCP responses and runs them through an optimization p
 [PlayGuard figma: -68% (284.0KB→91.0KB)]
 ```
 
-> **Note:** Modules 1–4 and 6 target raw Figma REST API JSON (`document.children`, `componentId`, `fillGeometry`). If your Figma MCP upstream returns pre-simplified YAML (e.g. Framelink `figma-developer-mcp`), those modules find nothing to strip — Module 8 handles that shape instead — and `inBytes`/`outBytes` are still measured from the actual upstream response text, so the automatic YAML→JSON reformatting (typically ~2x on its own) and Module 5's metadata trim both still count as real savings. `parseSkip` in the NDJSON log means the response body couldn't be parsed as JSON or YAML at all, not that the optimizer no-op'd.
+> **Note:** Modules 1–4 and 6 target raw Figma REST API JSON (`document.children`, `componentId`, `fillGeometry`). If your Figma MCP upstream returns pre-simplified YAML (e.g. Framelink `figma-developer-mcp`), those modules find nothing to strip — Module 8 handles that shape instead — and `inBytes`/`outBytes` are still measured from the actual upstream response text, so the automatic YAML→JSON reformatting (typically ~2x on its own) and Module 5's metadata trim both still count as real savings. `parseSkip` in the NDJSON log means the response body couldn't be parsed as JSON or YAML at all, not that the optimizer no-op'd. Framelink 0.13+ defaults to a `tree` text format that is neither, so PlayGuard starts the Figma child with `OUTPUT_FORMAT=json` unless you set `OUTPUT_FORMAT` yourself (`yaml` and `json` both work; `tree` disables the optimizer and `playguard_compare_design`).
 
 **Module 1 — Metadata Cleaner:** Removes fields irrelevant to layout: `createdAt`, `updatedAt`, `creator`, `thumbnailUrl`, `pluginData`, `sharedPluginData`, `exportSettings`, `reactions`, `interactions`, etc.
 
@@ -294,6 +294,7 @@ Use forward slashes in JSON strings. Spaces in paths do not need escaping:
 | `FIGMA_SVG_REFS` | `true` | Set `false` to keep SVG geometry inline |
 | `FIGMA_TEXT_COMPACT` | `10000` | Max characters for the Figma text response. When the optimizer parsed the tree, an over-budget response is trimmed structurally (Module 7) — branches collapse to `{id,name,type}` stubs, never silently disappear. Only falls back to a raw text slice if the response never parsed (`parseSkip`). `0` = off |
 | `FIGMA_API_KEY` | — | Forwarded to the Figma MCP child process |
+| `OUTPUT_FORMAT` | `json` | Output format requested from Framelink (`figma-developer-mcp`). Must be `json` or `yaml` for the optimizer and Design Diff to parse it |
 
 ### Design Diff
 

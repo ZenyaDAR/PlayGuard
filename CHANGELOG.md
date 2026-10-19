@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.7.1 — 2026-10-19
+
+### Fixed
+- The Figma optimizer had been a silent no-op on Framelink since
+  `figma-developer-mcp` 0.13, which changed its default output from YAML to a
+  `tree` text format that parses as neither JSON nor YAML. Every
+  `get_figma_data` response was logged as `parseSkip: "parse-error"` and passed
+  through unoptimized (only the raw text slice still applied). PlayGuard now
+  sets `OUTPUT_FORMAT=json` for the Figma child process unless you set
+  `OUTPUT_FORMAT` yourself; Figma MCPs that don't read the variable ignore it.
+  The same parse step feeds `playguard_compare_design`, which returned
+  "failed to parse Figma response" on Framelink for the same reason.
+
 ## 0.7.0 — 2026-08-24
 
 ### Changed

@@ -25,7 +25,7 @@
     "start": "node dist/index.js",
     "bench": "node bench/run.mjs",
     "analyze": "node bench/analyze.mjs",
-    "test": "tsc && node --test \"test/*.test.mjs\"",
+    "test": "tsc && node --test test/playguard.test.mjs test/playguard-core.test.mjs test/design-diff.test.mjs test/proxy.test.mjs",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {

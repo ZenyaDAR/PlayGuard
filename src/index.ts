@@ -19,7 +19,7 @@ import {
   SMART_WAIT, SMART_WAIT_MS, SMART_WAIT_MAX_RETRIES, EVAL_COMPACT_THRESHOLD,
   FIGMA_MCP_CMD, FIGMA_CACHE_TTL, FIGMA_TEXT_COMPACT,
   DESIGN_DIFF_TOLERANCE_PX, DESIGN_DIFF_TOLERANCE_COLOR,
-  DELTA_THRESHOLD, DELTA_ENABLED, HINT_THRESHOLD,
+  DELTA_THRESHOLD, DELTA_ENABLED, HINT_THRESHOLD, HINTS,
 } from "./config.js";
 import {
   STRUCTURAL_RE, hashContent, compactSnap, collapseRuns, decideSnapshot, looksLikeLoading,
@@ -29,7 +29,7 @@ import { optimizeFigmaResponse, budgetTrimFigma, type FigmaOptStats } from "./fi
 
 // Re-exported so tests (and downstream importers) can reach the pure helpers
 // straight off dist/index.js, unchanged by the module split.
-export { splitArgs, withOutputDir } from "./config.js";
+export { splitArgs, withOutputDir, withCodegenOff } from "./config.js";
 export { compactSnap, collapseRuns, decideSnapshot, looksLikeLoading, emptySnapState } from "./snapshot.js";
 export type { SnapState } from "./snapshot.js";
 export { optimizeFigmaResponse, budgetTrimFigma } from "./figma-optimize.js";
@@ -60,7 +60,33 @@ function logCall(tool: string, ms: number, err: boolean, extra?: object) {
   });
 }
 
-const DEAD_RE = /Target.*closed|Browser.*closed|page.*closed|connect ECONNREFUSED|crashed|Navigation failed because page|Protocol error.*Target/i;
+// One-line, length-capped error reason for the log: tool content or a thrown value.
+// ponytail: not masked — logs are local and 200 chars is enough for the error type.
+export function errSummary(v: unknown): string {
+  const s = Array.isArray(v) ? v.map((c: ContentItem) => c?.text ?? "").join(" ") : v == null ? "" : String(v);
+  // ANSI color codes and `### Error` headers from Playwright's call log would otherwise
+  // eat the 200 chars before the useful part (why the locator didn't resolve).
+  return s.replace(/\x1b\[[0-9;]*m/g, "").replace(/^### \w+\s*/gm, "").replace(/\s+/g, " ").trim().slice(0, 200);
+}
+
+const sha8 = (s: string) => createHash("sha256").update(s).digest("hex").slice(0, 8);
+
+// Appended to tool descriptions: every evaluate/run_code pays Playwright MCP's fixed
+// settle wait (≥0.5 s), so fewer, bigger calls are the only way to cut that time.
+const TOOL_HINTS: Record<string, string> = {
+  browser_evaluate: "[PlayGuard] Each call waits ≥0.5–1.5 s for the page to settle. Combine related checks into one function that returns an object instead of calling this repeatedly.",
+  browser_run_code_unsafe: "[PlayGuard] Each call waits for the page to settle. Prefer one script that loops over viewports/states over several calls.",
+  browser_wait_for: "[PlayGuard] Prefer waiting for text over a fixed time.",
+};
+export function annotateTools(tools: Tool[]): Tool[] {
+  for (const t of tools) {
+    const hint = TOOL_HINTS[t.name];
+    if (hint && !t.description?.includes(hint)) t.description = (t.description ? t.description + "\n" : "") + hint;
+  }
+  return tools;
+}
+
+const DEAD_RE =/Target.*closed|Browser.*closed|page.*closed|connect ECONNREFUSED|crashed|Navigation failed because page|Protocol error.*Target/i;
 
 // Tools that change page state — invalidate snapshot cache after these succeed
 const MUTATING = new Set([
@@ -292,8 +318,12 @@ async function browserEval(expression: string): Promise<{ data?: any; error?: st
   if (r.isError) {
     return { error: `browser error: ${(r.content as ContentItem[])[0]?.text ?? "unknown error"}` };
   }
-  const text = (r.content as ContentItem[]).find(c => c.type === "text")?.text ?? "{}";
+  return { data: parseEvalText((r.content as ContentItem[]).find(c => c.type === "text")?.text ?? "{}") };
+}
 
+// Pulls the JSON value out of a browser_evaluate response, with or without the trailing
+// `### Ran Playwright code` block (absent under --codegen none).
+export function parseEvalText(text: string): any {
   let dataStr = text;
   if (text.includes("### Result")) {
     const match = text.match(/### Result\s*\n([\s\S]*?)(?:\n###|$)/);
@@ -304,14 +334,14 @@ async function browserEval(expression: string): Promise<{ data?: any; error?: st
   }
 
   try {
-    return { data: JSON.parse(dataStr) };
+    return JSON.parse(dataStr);
   } catch {
     // fallback: find the first { ... } block
     const match = text.match(/\{[\s\S]*\}/);
     try {
-      if (match) return { data: JSON.parse(match[0]) };
+      if (match) return JSON.parse(match[0]);
     } catch {}
-    return { data: {} };
+    return {};
   }
 }
 
@@ -398,6 +428,7 @@ const server = new Server(
 
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   const result = await getConn().then((c) => c.listTools());
+  if (HINTS) annotateTools(result.tools as Tool[]);
   if (SCREENSHOTS === "redirect") {
     const shot = (result.tools as Tool[]).find((t) => t.name === "browser_take_screenshot");
     if (shot) {
@@ -669,6 +700,7 @@ server.setRequestHandler(CallToolRequestSchema, async ({ params: { name, argumen
       logCall(name, Date.now() - t0f, !!r.isError, {
         ...figmaLogBase,
         cacheHit: false,
+        errText: r.isError ? errSummary(r.content) : undefined,
         parseSkip,
         textTruncated: textTruncated || undefined,
         textFullChars,
@@ -694,7 +726,7 @@ server.setRequestHandler(CallToolRequestSchema, async ({ params: { name, argumen
       });
       return out;
     } catch (e) {
-      logCall(name, Date.now() - t0f, true, { ...figmaLogBase, error: String(e) });
+      logCall(name, Date.now() - t0f, true, { ...figmaLogBase, error: String(e), errText: errSummary(e) });
       throw e;
     }
   }
@@ -736,7 +768,7 @@ server.setRequestHandler(CallToolRequestSchema, async ({ params: { name, argumen
   let scriptHash: string | undefined;
   if (name === "browser_evaluate") {
     const script = String((args as ToolArgs).function ?? (args as ToolArgs).code ?? (args as ToolArgs).expression ?? JSON.stringify(args));
-    scriptHash = createHash("sha256").update(script).digest("hex").slice(0, 8);
+    scriptHash = sha8(script);
     if (EVAL_CACHE_TTL > 0) {
       evalKey = createHash("sha256").update(lastUrl + "\0" + script).digest("hex").slice(0, 16);
       const hit = evalCache.get(evalKey, EVAL_CACHE_TTL);
@@ -820,7 +852,14 @@ server.setRequestHandler(CallToolRequestSchema, async ({ params: { name, argumen
     }
   };
 
-  const result = await invoke();
+  let result: Awaited<ReturnType<typeof invoke>>;
+  try {
+    result = await invoke();
+  } catch (e) {
+    // Without this a thrown upstream error never reached the log at all.
+    logCall(name, Date.now() - t0, true, { url, errText: errSummary(e), thrown: true });
+    throw e;
+  }
 
   // ── Eval: cache result + compact large output ──────────────────────────────
   let evalOutputBytes: number | undefined;
@@ -845,6 +884,8 @@ server.setRequestHandler(CallToolRequestSchema, async ({ params: { name, argumen
 
   let extra: Record<string, unknown> = { url };
   if (wasRetried) extra.retried = true;
+  if (result.isError) extra.errText = errSummary(result.content);
+  const a = args as ToolArgs;
 
   if (name === "browser_snapshot") {
     const m = r._snapMeta;
@@ -866,12 +907,22 @@ server.setRequestHandler(CallToolRequestSchema, async ({ params: { name, argumen
     };
   } else if (name === "browser_evaluate") {
     extra = { ...extra, scriptHash, outputBytes: evalOutputBytes, truncated: evalTruncated };
+  } else if (name === "browser_wait_for") {
+    // Shape only — tells a fixed sleep (`time`) from a real condition.
+    extra.waitKind = a.time !== undefined ? "time" : a.text !== undefined ? "text" : a.textGone !== undefined ? "textGone" : undefined;
+    if (typeof a.time === "number") extra.waitTime = a.time;
+  } else if (name === "browser_run_code_unsafe") {
+    // Length + hash like evaluate's scriptHash; the code itself stays out of the log.
+    const code = String(a.code ?? "");
+    Object.assign(extra, { codeChars: code.length, codeHash: sha8(code), codeSleeps: code.split("waitForTimeout(").length - 1 });
   } else if (name === "browser_take_screenshot" && !result.isError) {
     const screenshotBytes = (result.content as Array<{ type?: string; data?: string }>)
       .reduce((s, c) => s + (c.data ? Math.round(c.data.length * 3 / 4) : 0), 0);
     if (screenshotBytes > 0) extra.screenshotBytes = screenshotBytes;
     // Distinguishes "agent explicitly wanted pixels" from "redirect wasn't active".
-    if ((args as ToolArgs).visual) extra.visual = true;
+    if (a.visual) extra.visual = true;
+    if (a.fullPage) extra.fullPage = true;
+    if (a.type) extra.type = a.type;
   }
 
   logCall(name, Date.now() - t0, !!result.isError, extra);

@@ -423,3 +423,56 @@ test("sortDeep: nested values still distinguish two different calls", async () =
   assert.notEqual(key("1:2"), key("9:9"));
   assert.match(key("1:2"), /1:2/);
 });
+
+// ── 0.8.0 helpers ────────────────────────────────────────────────────────────
+const { errSummary, withCodegenOff, withOutputDir, parseEvalText, annotateTools } = await import("../dist/index.js");
+
+test("errSummary flattens content or an Error into one line of ≤200 chars", () => {
+  assert.equal(errSummary([{ type: "text", text: "a\n  b" }, { type: "text", text: "c" }]), "a b c");
+  assert.equal(errSummary(new Error("boom\nline2")), "Error: boom line2");
+  assert.equal(errSummary([]), "");
+  assert.equal(errSummary(undefined), "");
+  assert.equal(errSummary([{ text: "x".repeat(500) }]).length, 200);
+  assert.equal(errSummary([{ text: "### Error\nTimeoutError: x\n\u001b[2m - waiting for locator\u001b[22m" }]),
+    "TimeoutError: x - waiting for locator");
+});
+
+test("withCodegenOff adds --codegen none unless the user chose a codegen", () => {
+  const input = ["--headless"];
+  assert.deepEqual(withCodegenOff(input), ["--headless", "--codegen", "none"]);
+  assert.deepEqual(input, ["--headless"], "input must not be mutated");
+  assert.deepEqual(withCodegenOff(["--codegen", "typescript"]), ["--codegen", "typescript"]);
+  assert.deepEqual(withCodegenOff(["--codegen=typescript"]), ["--codegen=typescript"]);
+  const both = withOutputDir(withCodegenOff([]), "/o");
+  assert.deepEqual(both, ["--codegen", "none", "--output-dir", "/o"]);
+  assert.deepEqual(withCodegenOff(withOutputDir([], "/o")), ["--output-dir", "/o", "--codegen", "none"]);
+});
+
+test("parseEvalText extracts the result with and without a codegen block", () => {
+  assert.deepEqual(parseEvalText('### Result\n{"a":1}\n### Ran Playwright code\n```js\nx\n```'), { a: 1 });
+  assert.deepEqual(parseEvalText('### Result\n{"a":1}'), { a: 1 });
+  assert.equal(parseEvalText('### Result\n"https://a.test/"'), "https://a.test/");
+  assert.deepEqual(parseEvalText('### Result\n{\n  "a": [1,\n 2]\n}\n### Page\n- url'), { a: [1, 2] });
+  assert.deepEqual(parseEvalText("garbage"), {});
+});
+
+test("annotateTools appends hints once and leaves schemas and other tools alone", () => {
+  const schema = { type: "object", properties: { function: { type: "string" } } };
+  const tools = [
+    { name: "browser_evaluate", description: "Eval", inputSchema: structuredClone(schema) },
+    { name: "browser_run_code_unsafe", description: "Run", inputSchema: { type: "object" } },
+    { name: "browser_wait_for", inputSchema: { type: "object" } },
+    { name: "browser_click", description: "Click", inputSchema: { type: "object" } },
+  ];
+  annotateTools(tools);
+  const desc = tools.map(t => t.description);
+  annotateTools(tools);
+  assert.deepEqual(tools.map(t => t.description), desc, "second pass must not duplicate");
+  assert.match(desc[0], /^Eval\n\[PlayGuard\]/);
+  assert.match(desc[1], /\[PlayGuard\]/);
+  assert.match(desc[2], /\[PlayGuard\]/);
+  assert.equal(desc[3], "Click");
+  assert.deepEqual(tools[0].inputSchema, schema);
+  for (const d of desc.slice(0, 3)) assert.ok(d.slice(d.indexOf("[PlayGuard]")).length <= 200);
+  assert.doesNotThrow(() => annotateTools([]));
+});

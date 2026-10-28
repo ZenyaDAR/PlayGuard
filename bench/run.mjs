@@ -7,7 +7,7 @@
 //
 // Two server instances are used on purpose:
 //   cold — prefetch/delta OFF: honest snapshot latency + compact table
-//   warm — defaults ON (prefetch, delta, redirect): behavior demos match production
+//   warm — prefetch forced ON (off by default since 0.8.0), delta + redirect: behavior demos
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -176,7 +176,7 @@ await cold.close();
 
 // ─── 2. Warm instance: production defaults ────────────────────────────────────
 process.stdout.write("Connecting (warm instance: production defaults + redirect)... ");
-const pg = await connect({ PLAYGUARD_SCREENSHOTS: "redirect", ...figmaEnv });
+const pg = await connect({ PLAYGUARD_SCREENSHOTS: "redirect", PLAYGUARD_PREFETCH_SNAPSHOT: "true", ...figmaEnv });
 console.log("OK\n");
 
 const { tools } = await pg.listTools();

@@ -302,3 +302,44 @@ if (realShots.length) {
     console.log(`  Redirect saved:     ~${savedKB.toFixed(1)} KB across ${redirected.length} redirected call(s)`);
   }
 }
+
+// ── Playwright call patterns (0.8.0 baseline comparison) ───────────────────
+const pw = entries.filter(e => e.tool?.startsWith("browser_")).sort((a, b) => a.ts - b.ts);
+if (pw.length) {
+  console.log(`\n── Playwright call patterns ──────────────────────────────`);
+  const errs = pw.filter(e => e.err);
+  const withText = errs.filter(e => e.errText);
+  console.log(`  Errors with errText:   ${withText.length}/${errs.length}${errs.some(e => e.thrown) ? `  (${errs.filter(e => e.thrown).length} thrown)` : ""}`);
+  const topErr = {};
+  // Strip refs/numbers so the same failure from different elements groups together.
+  for (const e of withText) { const k = `${e.tool}: ${e.errText.replace(/\b(e?\d+|ref=\w+)\b/g, "#").slice(0, 70)}`; topErr[k] = (topErr[k] ?? 0) + 1; }
+  Object.entries(topErr).sort((a, b) => b[1] - a[1]).slice(0, 10).forEach(([k, n]) => console.log(`    ${String(n).padStart(4)}  ${k}`));
+
+  // Consecutive pairs within one server instance only.
+  const byInst = {};
+  for (const e of pw) (byInst[e.inst] ??= []).push(e);
+  let evalEval = 0, evalAfterNav = [], evalLater = [];
+  for (const rows of Object.values(byInst)) rows.forEach((e, i) => {
+    if (e.tool !== "browser_evaluate" || e.evalCacheHit) return;
+    const prev = rows[i - 1]?.tool;
+    if (prev === "browser_evaluate") evalEval++;
+    (prev === "browser_navigate" ? evalAfterNav : evalLater).push(e.ms);
+  });
+  const evals = evalAfterNav.length + evalLater.length;
+  if (evals) {
+    console.log(`  evaluate → evaluate:   ${evalEval}/${evals} (${Math.round(evalEval / evals * 100)}%)`);
+    if (evalAfterNav.length) console.log(`  evaluate p50:          ${pct(evalAfterNav, 50)}ms right after navigate, ${pct(evalLater, 50)}ms otherwise`);
+  }
+  const waits = pw.filter(e => e.tool === "browser_wait_for" && e.waitKind);
+  if (waits.length) {
+    const kinds = {};
+    for (const e of waits) kinds[e.waitKind] = (kinds[e.waitKind] ?? 0) + 1;
+    const timed = waits.filter(e => e.waitKind === "time").reduce((s, e) => s + (e.waitTime ?? 0), 0);
+    console.log(`  wait_for kinds:        ${Object.entries(kinds).map(([k, n]) => `${k} ${n}`).join(", ")}  (fixed sleeps total ${timed}s)`);
+  }
+  const runs = pw.filter(e => e.tool === "browser_run_code_unsafe" && e.codeChars != null);
+  if (runs.length) {
+    const sleepy = runs.filter(e => e.codeSleeps > 0).length;
+    console.log(`  run_code with waitForTimeout: ${sleepy}/${runs.length}`);
+  }
+}

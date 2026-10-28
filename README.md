@@ -92,7 +92,17 @@ REMOVED:
 
 #### Snapshot Cache + Prefetch
 
-After `browser_navigate`, PlayGuard immediately fetches a snapshot in the background. The next `browser_snapshot` is served from cache instantly. An unchanged page returns `UNCHANGED` without hitting the browser.
+An unchanged page returns `UNCHANGED` without hitting the browser.
+
+Optional prefetch (`PLAYGUARD_PREFETCH_SNAPSHOT=true`, off by default since 0.8.0): after `browser_navigate`, PlayGuard fetches a snapshot in the background so the next `browser_snapshot` is served from cache. It only pays off for agents that snapshot right after navigating — any `browser_evaluate` or action in between discards it, and the background call competes with that action for the browser.
+
+#### Shorter Playwright Responses
+
+PlayGuard starts the bundled Playwright MCP with `--codegen none`, which drops the `### Ran Playwright code` block from every response (80–150 characters per call). Not applied to a custom `PLAYWRIGHT_MCP_CMD` or when `--codegen` is already in `PLAYWRIGHT_MCP_ARGS`; set `PLAYGUARD_CODEGEN=keep` to restore it.
+
+#### Batching Hints
+
+Every `browser_evaluate` / `browser_run_code_unsafe` call waits at least ~0.5 s inside Playwright MCP for the page to settle. PlayGuard appends a one-line hint to those tools' descriptions (and to `browser_wait_for`) nudging the agent to combine checks into fewer calls. `PLAYGUARD_HINTS=false` turns this off.
 
 #### Screenshot Policy
 
@@ -271,7 +281,9 @@ Use forward slashes in JSON strings. Spaces in paths do not need escaping:
 | `PLAYGUARD_DELTA_THRESHOLD` | `0.4` | Fraction of lines that must change to trigger a full snapshot instead of a delta (0–1) |
 | `PLAYGUARD_TOKEN_BUDGET` | `0` | Max tokens per snapshot; truncates on a line boundary so `[ref=]` tags are never split. `0` = off |
 | `PLAYGUARD_HINT_THRESHOLD` | `4` | After N consecutive snapshots without any action, inject a hint listing available interactive refs |
-| `PLAYGUARD_PREFETCH_SNAPSHOT` | `true` | Set `false` to disable background snapshot prefetch after `browser_navigate` |
+| `PLAYGUARD_PREFETCH_SNAPSHOT` | `false` | Set `true` to prefetch a snapshot in the background after `browser_navigate` |
+| `PLAYGUARD_CODEGEN` | — | Set `keep` to stop PlayGuard adding `--codegen none` to the bundled Playwright MCP |
+| `PLAYGUARD_HINTS` | `true` | Set `false` to stop appending batching hints to tool descriptions |
 | `PLAYGUARD_SMART_WAIT` | `false` | Set `1`/`true` to retry a snapshot that looks mid-load (few refs + a loading/spinner indicator) instead of returning it as-is |
 | `PLAYGUARD_SMART_WAIT_MS` | `1000` | Delay between smart-wait retries, in ms |
 | `PLAYGUARD_SMART_WAIT_MAX_RETRIES` | `3` | Max smart-wait retries before giving up and returning the snapshot with a warning |
@@ -373,7 +385,7 @@ Sample output:
 ```
 
 Each NDJSON line includes all fields for downstream analysis:
-- **Playwright:** `rawBytes`, `keptBytes`, `savedBytes`, `delta`, `cacheHit`, `prefetchHit`, `snapCount`, `scriptHash`
+- **Playwright:** `rawBytes`, `keptBytes`, `savedBytes`, `delta`, `cacheHit`, `prefetchHit`, `snapCount`, `scriptHash`; on errors `errText` (≤200 chars) and `thrown` for exceptions; `waitKind`/`waitTime` for `browser_wait_for`; `codeChars`/`codeHash`/`codeSleeps` for `browser_run_code_unsafe`; `fullPage`/`type` for screenshots
 - **Figma:** `fileKey`, `nodeId`, `inBytes`, `outBytes`, `savedTokens`, `metaKeysDeleted`, `invisiblePruned`, `svgRefsReplaced`, `instancesCollapsed`, `layoutCoordsRemoved`
 
 ---
@@ -394,7 +406,9 @@ Measures proxy overhead, snapshot vs screenshot size, cache hit rate, and crash 
 npm test
 ```
 
-Covers `collapseRuns`, `compactSnap` (including token budget boundary), the full Figma optimizer pipeline (`optimizeFigmaResponse`), the structural budget trim (`budgetTrimFigma`), and the artifact-path plumbing — `withOutputDir`, `figmaLocalPath`, and `resolveUpstream`, which locates the Playwright MCP through the module graph — in `test/playguard.test.mjs`, plus `dead()` crash detection, `splitArgs()` quoting, the shared `ttlCache()` helper, the `decideSnapshot()` cache/delta/hint decision logic, the `section`/`around`/`depth` snapshot filtering, the `looksLikeLoading()` smart-wait heuristic, the `sortDeep()` Figma cache-key normalization, and the Module 8 Framelink-shape optimizations in `test/playguard-core.test.mjs`. `test/design-diff.test.mjs` covers the design-diff side: property extraction from both upstream Figma shapes (REST and Framelink), colour/border/typography normalization, node resolution including the not-found case, the comparison and tolerance rules, and the generated auto-map and eval scripts.
+Covers `collapseRuns`, `compactSnap` (including token budget boundary), the full Figma optimizer pipeline (`optimizeFigmaResponse`), the structural budget trim (`budgetTrimFigma`), and the artifact-path plumbing — `withOutputDir`, `figmaLocalPath`, and `resolveUpstream`, which locates the Playwright MCP through the module graph — in `test/playguard.test.mjs`, plus `dead()` crash detection, `splitArgs()` quoting, the shared `ttlCache()` helper, the `decideSnapshot()` cache/delta/hint decision logic, the `section`/`around`/`depth` snapshot filtering, the `looksLikeLoading()` smart-wait heuristic, the `sortDeep()` Figma cache-key normalization, and the Module 8 Framelink-shape optimizations in `test/playguard-core.test.mjs`. `test/design-diff.test.mjs` covers the design-diff side: property extraction from both upstream Figma shapes (REST and Framelink), colour/border/typography normalization, node resolution including the not-found case, the comparison and tolerance rules, and the generated auto-map and eval scripts. `test/proxy.test.mjs` drives the built `dist/index.js` over stdio against a fake upstream (`test/fixtures/fake-pw.mjs`), covering the CallTool path end to end: call logging (`errText`, `thrown`, argument shape), the eval cache, snapshot compaction, dead-browser revive, screenshot redirect, prefetch on/off, `--codegen` handling and the batching hints.
+
+`node bench/smoke-codegen.mjs` (after `npm run build`, needs a browser, not part of `npm test`) checks against the real Playwright MCP that responses carry no codegen block and evaluate results still parse.
 
 CI (GitHub Actions, `.github/workflows/ci.yml`) runs `npm test` on every push and pull request to `main`.
 
@@ -427,11 +441,14 @@ playguard/
 ├── dist/                           Compiled output (generated by npm run build)
 ├── bench/
 │   ├── run.mjs                     Benchmark: latency, token savings, crash recovery
-│   └── analyze.mjs                 Analytics report from NDJSON logs
+│   ├── analyze.mjs                 Analytics report from NDJSON logs
+│   └── smoke-codegen.mjs           Real-browser check that --codegen none keeps evaluate parseable
 ├── test/
 │   ├── playguard.test.mjs          Compact/Figma optimizer, output-dir routing, upstream resolution
 │   ├── playguard-core.test.mjs     Crash detection, arg parsing, caching, snapshot decision
-│   └── design-diff.test.mjs        Property extraction, comparison, auto-map
+│   ├── design-diff.test.mjs        Property extraction, comparison, auto-map
+│   ├── proxy.test.mjs              CallTool path end to end against a fake upstream
+│   └── fixtures/fake-pw.mjs        Fake Playwright MCP used by proxy.test.mjs
 ├── .github/workflows/ci.yml        Runs npm test on push/PR
 ├── logs/                           Per-day NDJSON call logs (auto-created at runtime)
 ├── .playguard/                     Auto-created artifact root

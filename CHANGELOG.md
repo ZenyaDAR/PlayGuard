@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.8.0 — 2026-10-28
+
+### Changed
+- **Snapshot prefetch is now off by default.** Real logs showed 3 prefetch hits in
+  3238 navigates: the next call is almost always `browser_evaluate`, which discards
+  the prefetched snapshot, while the background call slowed that evaluate down.
+  Restore with `PLAYGUARD_PREFETCH_SNAPSHOT=true`.
+- The bundled Playwright MCP now runs with `--codegen none`, dropping the
+  `### Ran Playwright code` block from every response (80–150 chars per call).
+  Skipped for a custom `PLAYWRIGHT_MCP_CMD` or an explicit `--codegen`; restore
+  with `PLAYGUARD_CODEGEN=keep`.
+- `browser_evaluate`, `browser_run_code_unsafe` and `browser_wait_for` descriptions
+  carry a one-line hint to batch checks into fewer calls. Disable with
+  `PLAYGUARD_HINTS=false`.
+
+### Added
+- Log lines for failed calls carry `errText` (first 200 chars of the error, with
+  ANSI colour codes and `### Error` headings stripped so the cause fits).
+- `browser_wait_for` logs `waitKind`/`waitTime`; `browser_run_code_unsafe` logs
+  `codeChars`/`codeHash`/`codeSleeps` (never the code); screenshots log
+  `fullPage`/`type`.
+- Proxy-level tests against a fake upstream (`test/proxy.test.mjs`), and
+  `bench/smoke-codegen.mjs`, a real-browser check that evaluate results still
+  parse without the codegen block.
+- `bench/analyze.mjs` reports Playwright call patterns: top error texts,
+  evaluate→evaluate chains, evaluate latency after navigate, fixed sleeps in
+  `wait_for` and `run_code`.
+
+### Fixed
+- A tool call whose upstream threw (rather than returning `isError`) was never
+  logged. It is now logged with `thrown: true` and still rethrown to the client.
+
 ## 0.7.1 — 2026-10-19
 
 ### Fixed

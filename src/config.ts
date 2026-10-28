@@ -31,7 +31,12 @@ export const SCREENSHOTS = process.env.PLAYGUARD_SCREENSHOTS ?? "warn"; // block
 export const COMPACT = process.env.PLAYGUARD_COMPACT !== "false";
 export const TOKEN_BUDGET = num(process.env.PLAYGUARD_TOKEN_BUDGET, 0); // 0 = off
 export const EVAL_CACHE_TTL = num(process.env.PLAYGUARD_EVAL_CACHE_TTL, 500); // ms; 0 = off
-export const PREFETCH_SNAPSHOT = process.env.PLAYGUARD_PREFETCH_SNAPSHOT !== "false"; // default on
+// Default off since 0.8.0: the next call after a navigate is almost always an evaluate,
+// which is MUTATING and discards the prefetch (3 hits in 3238 navigates), while the
+// background snapshot competes with that evaluate on the one upstream connection.
+export const PREFETCH_SNAPSHOT = process.env.PLAYGUARD_PREFETCH_SNAPSHOT === "true";
+// Tool-description hints that nudge agents to batch evaluate/run_code calls.
+export const HINTS = process.env.PLAYGUARD_HINTS !== "false";
 export const SMART_WAIT = process.env.PLAYGUARD_SMART_WAIT === "1" || process.env.PLAYGUARD_SMART_WAIT === "true"; // default off
 export const SMART_WAIT_MS = num(process.env.PLAYGUARD_SMART_WAIT_MS, 1000);
 export const SMART_WAIT_MAX_RETRIES = num(process.env.PLAYGUARD_SMART_WAIT_MAX_RETRIES, 3);
@@ -135,10 +140,21 @@ export function withOutputDir(args: string[], dir: string): string[] {
   const present = args.some(a => a === "--output-dir" || a.startsWith("--output-dir="));
   return present ? args : [...args, "--output-dir", dir];
 }
+// Drop the `### Ran Playwright code` block Playwright MCP appends to every response —
+// agents never use it, and it costs 80–150 chars per call. Same precedence rule as
+// withOutputDir: a user-passed --codegen wins in either form.
+export function withCodegenOff(args: string[]): string[] {
+  const present = args.some(a => a === "--codegen" || a.startsWith("--codegen="));
+  return present ? args : [...args, "--codegen", "none"];
+}
+// Only for our own pinned @playwright/mcp: a custom PLAYWRIGHT_MCP_CMD may not know the
+// flag and would fail to start.
+const codegenOff = !process.env.PLAYWRIGHT_MCP_CMD && process.env.PLAYGUARD_CODEGEN !== "keep";
 // Run the command directly and let cross-spawn (used inside the MCP SDK) handle .cmd/.bat
 // invocation. A manual `cmd /c` wrapper mangles args with spaces — cmd's quote-stripping
 // splits an --output-dir path like "…\Рабочий стол\…" mid-path.
-export const [PW_CMD, PW_ARGS]: [string, string[]] = [rawCmd, withOutputDir([...baseArgs, ...extraArgs], QA_DIR)];
+const pwArgs = withOutputDir([...baseArgs, ...extraArgs], QA_DIR);
+export const [PW_CMD, PW_ARGS]: [string, string[]] = [rawCmd, codegenOff ? withCodegenOff(pwArgs) : pwArgs];
 
 const figmaExtraArgs = process.env.FIGMA_MCP_ARGS ? splitArgs(process.env.FIGMA_MCP_ARGS) : [];
 export const [FIGMA_CMD, FIGMA_ARGS]: [string, string[]] = FIGMA_MCP_CMD

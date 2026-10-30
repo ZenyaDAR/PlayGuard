@@ -14,7 +14,7 @@ import { extractFigmaProperties, buildBrowserEvalScript, normalizeBrowserRespons
   collectMappableNodes, buildAutoMapScript, resolveFigmaNode, ALL_PROPERTIES, MAX_AUTO_MAP,
   type DesignDiffArgs, type DesignPair, type DesignDiffResult } from "./design-diff.js";
 import {
-  splitArgs, VERSION, LOG_DIR, FIGMA_DIR, PW_CMD, PW_ARGS, FIGMA_CMD, FIGMA_ARGS,
+  splitArgs, VERSION, LOG_DIR, __dir, UPDATE_CHECK, FIGMA_DIR, PW_CMD, PW_ARGS, FIGMA_CMD, FIGMA_ARGS,
   SCREENSHOTS, COMPACT, EVAL_CACHE_TTL, PREFETCH_SNAPSHOT,
   SMART_WAIT, SMART_WAIT_MS, SMART_WAIT_MAX_RETRIES, EVAL_COMPACT_THRESHOLD,
   FIGMA_MCP_CMD, FIGMA_CACHE_TTL, FIGMA_TEXT_COMPACT,
@@ -54,7 +54,9 @@ export function sortDeep(v: unknown): unknown {
 const INSTANCE_ID = Math.random().toString(36).slice(2, 8);
 let logWriteFailed = false;
 function logCall(tool: string, ms: number, err: boolean, extra?: object) {
-  const line = JSON.stringify({ ts: Date.now(), inst: INSTANCE_ID, tool, ms, err, ...extra });
+  // `ver` shows which build actually served each call — a stale npx cache once ran
+  // 0.5.x for weeks while 0.6–0.8 were published, and nothing in the logs said so.
+  const line = JSON.stringify({ ts: Date.now(), inst: INSTANCE_ID, ver: VERSION, tool, ms, err, ...extra });
   appendFile(resolve(LOG_DIR, `${new Date().toISOString().slice(0, 10)}.ndjson`), line + "\n", (e) => {
     if (e && !logWriteFailed) { logWriteFailed = true; process.stderr.write(`[PlayGuard] analytics log write failed, disabling further warnings: ${e}\n`); }
   });
@@ -67,6 +69,43 @@ export function errSummary(v: unknown): string {
   // ANSI color codes and `### Error` headers from Playwright's call log would otherwise
   // eat the 200 chars before the useful part (why the locator didn't resolve).
   return s.replace(/\x1b\[[0-9;]*m/g, "").replace(/^### \w+\s*/gm, "").replace(/\s+/g, " ").trim().slice(0, 200);
+}
+
+// ── Update check ───────────────────────────────────────────────────────────────
+// True when `latest` is a higher x.y.z than `current`. Numeric per part, so 0.10.0 > 0.9.1.
+// ponytail: prerelease tags are ignored (`latest` on npm is never a prerelease here).
+export function isNewer(latest: string, current: string): boolean {
+  const p = (v: string) => v.split("-")[0].split(".").map(n => parseInt(n, 10) || 0);
+  const [a, b] = [p(latest), p(current)];
+  for (let i = 0; i < 3; i++) if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) > (b[i] ?? 0);
+  return false;
+}
+
+// The fix depends on where this copy runs from: an npx cache entry is refreshed by asking
+// for `@latest`; an installed copy (global or project node_modules) shadows npx entirely.
+export function updateNotice(current: string, latest: string, dir: string): string {
+  const where = /[\\/]_npx[\\/]/.test(dir)
+    ? `Set "args": ["-y", "playguard@latest"] in the MCP config so npx always fetches the newest release`
+    : /[\\/]node_modules[\\/]/.test(dir)
+      ? `An installed copy is running (${dir}). Run \`npm i -g playguard@latest\`, or uninstall it and use "args": ["-y", "playguard@latest"]`
+      : `Local checkout (${dir}): git pull && npm run build`;
+  return `[PlayGuard] Update available: ${current} → ${latest}. ${where}, then restart the MCP client. ` +
+    `Tell the user about this update.`;
+}
+
+// Shown once: prepended to the first tool result after the check resolves, and on stderr.
+let pendingNotice: string | null = null;
+async function checkForUpdate(): Promise<void> {
+  try {
+    // npx passes the user's configured registry down as npm_config_registry (mirrors, proxies).
+    const registry = (process.env.npm_config_registry || "https://registry.npmjs.org/").replace(/\/?$/, "/");
+    const res = await fetch(registry + "playguard/latest", { signal: AbortSignal.timeout(3000) });
+    const { version } = await res.json() as { version?: string };
+    if (version && isNewer(version, VERSION)) {
+      pendingNotice = updateNotice(VERSION, version, __dir);
+      process.stderr.write(pendingNotice + "\n");
+    }
+  } catch {} // offline / registry down — never worth failing over
 }
 
 const sha8 = (s: string) => createHash("sha256").update(s).digest("hex").slice(0, 8);
@@ -506,7 +545,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
   return result;
 });
 
-server.setRequestHandler(CallToolRequestSchema, async ({ params: { name, arguments: args = {} } }) => {
+const handleCall = async ({ params: { name, arguments: args = {} } }: { params: { name: string; arguments?: ToolArgs } }) => {
   const t0 = Date.now();
   const url = lastUrl || undefined;
 
@@ -927,6 +966,15 @@ server.setRequestHandler(CallToolRequestSchema, async ({ params: { name, argumen
 
   logCall(name, Date.now() - t0, !!result.isError, extra);
   return result;
+};
+
+server.setRequestHandler(CallToolRequestSchema, async (req) => {
+  const r = await handleCall(req);
+  if (!pendingNotice) return r;
+  const notice = pendingNotice;
+  pendingNotice = null;
+  // New object, not a mutation: r may be a cached result that later calls get back.
+  return { ...r, content: [{ type: "text", text: notice }, ...((r.content as ContentItem[] | undefined) ?? [])] };
 });
 
 // One retry on startup: a transient spawn failure would otherwise leave figmaToolNames
@@ -944,5 +992,6 @@ if (FIGMA_MCP_CMD) initFigmaTools();
 
 // PLAYGUARD_NO_SERVE=1 lets tests import the pure helpers without opening the stdio transport.
 if (process.env.PLAYGUARD_NO_SERVE !== "1") {
+  if (UPDATE_CHECK) checkForUpdate(); // no await — must never delay startup
   await server.connect(new StdioServerTransport());
 }

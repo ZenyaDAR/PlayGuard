@@ -26,6 +26,7 @@ async function start(env = {}) {
       PLAYWRIGHT_MCP_ARGS: `"${FAKE}" "${calls}"`,
       PLAYGUARD_LOG_DIR: join(dir, "logs"),
       PLAYGUARD_OUTPUT_DIR: join(dir, "out"),
+      PLAYGUARD_UPDATE_CHECK: "false",
       ...env,
     },
     stderr: "ignore",
@@ -230,4 +231,22 @@ test("proxy: listTools adds batching hints; PLAYGUARD_HINTS=false leaves descrip
     const { tools } = await off.client.listTools();
     assert.equal(tools.find(t => t.name === "browser_evaluate").description, "fake browser_evaluate");
   } finally { await off.close(); }
+});
+
+// ── Update check ─────────────────────────────────────────────────────────────
+test("proxy: a newer version on the registry is announced once, on the first tool result", async () => {
+  const { createServer } = await import("http");
+  const registry = createServer((req, res) => {
+    res.end(JSON.stringify(req.url === "/playguard/latest" ? { version: "999.0.0" } : {}));
+  });
+  await new Promise(r => registry.listen(0, "127.0.0.1", r));
+  const pg = await start({ PLAYGUARD_UPDATE_CHECK: "true", npm_config_registry: `http://127.0.0.1:${registry.address().port}` });
+  try {
+    await new Promise(r => setTimeout(r, 300)); // background check lands
+    const first = await pg.call("browser_navigate", { url: "https://a.test/" });
+    assert.match(first.content[0].text, /Update available: .* → 999\.0\.0/);
+    assert.match(first.content[0].text, /git pull/); // dist/ here is a checkout, not npx
+    const second = await pg.call("browser_navigate", { url: "https://b.test/" });
+    assert.ok(!text(second).includes("Update available"));
+  } finally { await pg.close(); registry.close(); }
 });

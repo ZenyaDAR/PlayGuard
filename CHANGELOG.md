@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.9.0 — 2026-10-30
+
+### Added
+- **Update check.** On startup PlayGuard asks the npm registry (honouring
+  `npm_config_registry`) for the latest version in the background. If the running
+  copy is older, the first tool result starts with a one-line notice saying how to
+  update, specific to where the copy runs from (npx cache, installed copy, checkout).
+  Disable with `PLAYGUARD_UPDATE_CHECK=false`.
+- Every log line carries `ver`, the PlayGuard version that served the call.
+
+### Changed
+- README configs use `playguard@latest`: a bare `playguard` could keep running a stale
+  npx-cached or globally installed copy indefinitely.
+
 ## 0.8.0 — 2026-10-28
 
 ### Changed

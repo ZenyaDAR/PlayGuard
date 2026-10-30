@@ -6,7 +6,21 @@ process.env.PLAYGUARD_NO_SERVE = "1";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-const { dead, splitArgs, ttlCache, decideSnapshot, emptySnapState, optimizeFigmaResponse, looksLikeLoading } = await import("../dist/index.js");
+const { dead, splitArgs, ttlCache, decideSnapshot, emptySnapState, optimizeFigmaResponse, looksLikeLoading, isNewer, updateNotice } = await import("../dist/index.js");
+
+// ── isNewer()/updateNotice() — startup update check ─────────────────────────
+test("isNewer compares versions numerically, not as strings", () => {
+  assert.ok(isNewer("0.10.0", "0.9.1"));
+  assert.ok(isNewer("1.0.0", "0.99.99"));
+  assert.ok(!isNewer("0.8.0", "0.8.0"));
+  assert.ok(!isNewer("0.7.9", "0.8.0"));
+});
+
+test("updateNotice names the fix for where this copy runs from", () => {
+  assert.match(updateNotice("0.5.0", "0.8.0", "C:\\Users\\x\\AppData\\Local\\npm-cache\\_npx\\abc\\node_modules\\playguard\\dist"), /playguard@latest/);
+  assert.match(updateNotice("0.5.0", "0.8.0", "/usr/lib/node_modules/playguard/dist"), /npm i -g playguard@latest/);
+  assert.match(updateNotice("0.5.0", "0.8.0", "/home/me/PlayGuard/dist"), /git pull/);
+});
 
 // ── dead() — crash/disconnect detection that drives session revival ─────────
 test("dead() recognizes known crash/disconnect error text", () => {

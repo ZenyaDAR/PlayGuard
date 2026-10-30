@@ -220,7 +220,7 @@ Add to `~/.claude/claude_desktop_config.json` (or your project's `.claude/settin
   "mcpServers": {
     "playguard": {
       "command": "npx",
-      "args": ["-y", "playguard"],
+      "args": ["-y", "playguard@latest"],
       "env": {
         "PLAYGUARD_SCREENSHOTS": "redirect"
       }
@@ -236,7 +236,7 @@ Add to `~/.claude/claude_desktop_config.json` (or your project's `.claude/settin
   "mcpServers": {
     "playguard": {
       "command": "npx",
-      "args": ["-y", "playguard"],
+      "args": ["-y", "playguard@latest"],
       "env": {
         "PLAYGUARD_SCREENSHOTS": "redirect",
         "FIGMA_MCP_CMD": "npx @figma/mcp",
@@ -251,6 +251,27 @@ Add to `~/.claude/claude_desktop_config.json` (or your project's `.claude/settin
 Do **not** add Playwright MCP separately — PlayGuard spawns it automatically from its bundled dependency.
 
 Running from a local clone instead? Use `"command": "node", "args": ["/path/to/playguard/dist/index.js"]`.
+
+### Staying up to date
+
+Keep the `@latest` in `"args": ["-y", "playguard@latest"]`. Without it, npx may keep
+running whatever copy it cached first (older npm versions never re-check the registry for a
+bare package name), and a global or project-local install of `playguard` is used instead
+of the npx copy. With `@latest`, npx checks npm on every start and fetches new releases.
+
+New versions are picked up when the MCP client restarts the server: restart Claude Code /
+Cursor / Claude Desktop after an update.
+
+On startup PlayGuard also asks npm for the latest version (in the background, 3 s timeout).
+If the running copy is older, it prints how to update to stderr and prepends the same notice
+to the first tool result, so the agent tells you. Disable with `PLAYGUARD_UPDATE_CHECK=false`.
+
+Still on an old version? Remove stale copies, then restart the client:
+
+```bash
+npm rm -g playguard          # if it was ever installed globally
+npx clear-npx-cache          # or delete the _npx folder in your npm cache
+```
 
 ### Claude Desktop
 
@@ -295,6 +316,7 @@ Use forward slashes in JSON strings. Spaces in paths do not need escaping:
 | `PLAYGUARD_OUTPUT_DIR` | `.playguard/` | Where all on-disk artifacts go, split by origin: `.playguard/.qa/` for everything from the site under test (screenshots, traces, PDFs, downloads, session) and `.playguard/.figma/` for Figma image exports. Defaults to `.playguard/` in the project root instead of the upstream's `.playwright-mcp/` |
 | `PLAYGUARD_PROJECT_ROOT` | nearest `.git`/`package.json` above `cwd` | The root `.playguard/` is created in. `process.cwd()` is whatever the MCP client spawned the server with, so it is not trusted; set this to pin the location outright |
 | `PLAYGUARD_LOG_DIR` | `logs/` | Override the NDJSON analytics log directory |
+| `PLAYGUARD_UPDATE_CHECK` | `true` | Set `false` to skip the startup check for a newer version on npm (offline, CI) |
 
 ### Figma
 

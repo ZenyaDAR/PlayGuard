@@ -37,6 +37,8 @@ export const EVAL_CACHE_TTL = num(process.env.PLAYGUARD_EVAL_CACHE_TTL, 500); //
 export const PREFETCH_SNAPSHOT = process.env.PLAYGUARD_PREFETCH_SNAPSHOT === "true";
 // Tool-description hints that nudge agents to batch evaluate/run_code calls.
 export const HINTS = process.env.PLAYGUARD_HINTS !== "false";
+// Asks the npm registry for the latest version on startup; =false for offline/CI.
+export const UPDATE_CHECK = process.env.PLAYGUARD_UPDATE_CHECK !== "false";
 export const SMART_WAIT = process.env.PLAYGUARD_SMART_WAIT === "1" || process.env.PLAYGUARD_SMART_WAIT === "true"; // default off
 export const SMART_WAIT_MS = num(process.env.PLAYGUARD_SMART_WAIT_MS, 1000);
 export const SMART_WAIT_MAX_RETRIES = num(process.env.PLAYGUARD_SMART_WAIT_MAX_RETRIES, 3);

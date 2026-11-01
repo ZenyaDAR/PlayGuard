@@ -1,10 +1,10 @@
 # PlayGuard
 
-> An MCP proxy that sits between an AI agent and the tools it drives. It wraps Playwright MCP and, optionally, Framelink's Figma MCP (`figma-developer-mcp`) behind a single MCP server, and on the way through it recovers crashed browser sessions, compacts accessibility snapshots by 70-90%, and strips metadata, invisible layers, duplicate component instances, and SVG geometry out of Figma responses.
+> A proxy MCP: one MCP server in your client config that runs several MCP servers under the hood — Playwright MCP (bundled, always on), Figma (Framelink `figma-developer-mcp` or Figma's official desktop server), Chrome DevTools MCP, Shopify Dev MCP and Context7 — exposes all their tools through a single connection, and optimizes their responses on the way back.
 
-PlayGuard is free and MIT licensed, runs locally over stdio, requires Node.js 18+, and is installed by adding one entry to an MCP client config — no separate Playwright MCP installation, because it is bundled and spawned by PlayGuard itself. It works with Claude Code, Claude Desktop, Cursor, Codex, and any other MCP-compatible client.
+PlayGuard is free and MIT licensed, runs locally over stdio, requires Node.js 20.18.1+, and is installed by adding one entry to an MCP client config. Which upstreams run is decided by environment variables in that entry; an upstream without its variable is never started. It works with Claude Code, Claude Desktop, Cursor, Codex, and any other MCP-compatible client.
 
-Install:
+Install (every upstream on; remove a variable to drop that upstream):
 
 ```json
 {
@@ -12,26 +12,49 @@ Install:
     "playguard": {
       "command": "npx",
       "args": ["-y", "playguard@latest"],
-      "env": { "PLAYGUARD_SCREENSHOTS": "redirect" }
+      "env": {
+        "PLAYGUARD_SCREENSHOTS": "redirect",
+        "FIGMA_MCP_CMD": "npx",
+        "FIGMA_MCP_ARGS": "-y figma-developer-mcp --stdio",
+        "FIGMA_API_KEY": "your-figma-api-key",
+        "DEVTOOLS_MCP_CMD": "npx -y chrome-devtools-mcp@latest",
+        "DEVTOOLS_MCP_ARGS": "--headless --isolated",
+        "SHOPIFY_DEV_MCP_CMD": "npx -y @shopify/dev-mcp@latest",
+        "CONTEXT7_MCP_CMD": "npx -y @upstash/context7-mcp@latest"
+      }
     }
   }
 }
 ```
 
+Who it's for: developers whose agents do front-end work — browser QA, Figma-to-code, Shopify themes. Cursor reads the same JSON from `.cursor/mcp.json`; Codex takes the same command, args and env as TOML in `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.playguard]
+command = "npx"
+args = ["-y", "playguard@latest"]
+
+[mcp_servers.playguard.env]
+PLAYGUARD_SCREENSHOTS = "redirect"
+```
+
 ## What it does
 
-- **Session recovery** — dead-session errors (`Target.*closed`, `Browser.*closed`, `connect ECONNREFUSED`, `crashed`) are intercepted before the agent sees them; Playwright MCP is restarted, the last URL restored, and the call retried.
-- **Snapshot compaction** — only lines carrying a `[ref=]` handle plus structural landmarks are kept, typically removing 70-90% of an accessibility tree. `PLAYGUARD_COMPACT=false` returns the raw tree.
-- **Delta snapshots, cache, prefetch** — small page changes return a diff; a snapshot can be prefetched after `browser_navigate` (opt-in); an unchanged page returns `UNCHANGED` without touching the browser.
-- **Figma optimization** — eight modules strip irrelevant metadata, invisible layers, duplicate component instances, inline SVG geometry, and redundant Auto Layout coordinates, with structural budget trimming that leaves re-fetchable stubs rather than dropping branches.
-- **Design diff** — `playguard_compare_design` compares a Figma node against the live DOM element implementing it and reports per-property mismatches numerically.
-- **Screenshot policy** — `allow`, `warn` (default), `block`, or `redirect` (screenshot replaced by a snapshot, with `{visual:true}` as the escape hatch).
-- **Update check** — on startup PlayGuard checks npm for a newer version and, if the running copy is older, says how to update in the first tool result. Use `playguard@latest` in the config so npx always fetches the newest release.
-- **Analytics** — every call is logged as NDJSON; `npm run analyze` reports cache hits, bytes and tokens saved, and per-tool latency percentiles.
+- **One connection, several upstreams** — tool lists are merged and each call is routed to the upstream that advertised the tool. Optional upstreams start lazily and are isolated: a failing one only removes its own tools.
+- **Session recovery** — dead-session errors (`Target.*closed`, `Browser.*closed`, `connect ECONNREFUSED`, `crashed`) are intercepted; Playwright MCP is restarted, the last URL restored, the call retried. Crashed DevTools / Shopify Dev / Context7 processes are respawned too.
+- **Snapshot compaction** — only lines carrying a `[ref=]` handle plus structural landmarks are kept, typically removing 70-90% of an accessibility tree. Delta snapshots, `UNCHANGED` repeats, eval cache, optional prefetch.
+- **Figma** — Framelink responses run through eight optimizer modules with structural budget trimming (re-fetchable stubs, nothing dropped silently). The official desktop server (`FIGMA_MCP_URL=http://127.0.0.1:3845/mcp`, no API key, paid Dev/Full seat) is passed through whole. Figma's remote server `mcp.figma.com` cannot be proxied.
+- **Chrome DevTools MCP** — long network lists become summaries (Shopify store 34K → ~1K chars), noisy headers and HTML bodies are trimmed, snapshots are compacted with `UNCHANGED`/delta; usage statistics and CrUX are off by default. It drives its own Chrome, separate from `browser_*`.
+- **Shopify Dev and Context7** — doc answers rewritten to compact markdown, duplicate chunks dropped, tool lists compacted (Context7 5.9K → 2.6K chars), lookups cached on disk for 24 h, identical repeats answered with a one-line `UNCHANGED`.
+- **Accessibility audit** — `playguard_a11y_audit` runs axe-core in the current page and returns WCAG 2.0–2.2 A/AA violations grouped by rule.
+- **Design diff** — `playguard_compare_design` compares a Figma node against the live DOM element implementing it and reports per-property mismatches numerically (Framelink).
+- **Screenshot policy** — `allow`, `warn` (default), `block`, or `redirect` (screenshot replaced by a snapshot, `{visual:true}` as the escape hatch).
+- **Privacy** — Chrome DevTools, Shopify Dev and Context7 each get a filtered environment (`FIGMA_API_KEY` never reaches them, `CONTEXT7_API_KEY` reaches Context7 only); keys never reach logs or caches. `raw: true` on a call returns the untouched upstream response.
+- **Analytics** — every call is logged as NDJSON; `npm run analyze` reports tokens saved per upstream, cache hits, and per-tool latency.
 
 ## Links
 
-- [Overview](https://playguard.dev/): what PlayGuard is, with before/after examples and setup.
-- [How PlayGuard works](https://playguard.dev/docs/): full technical walkthrough — architecture, compaction, session recovery, the eight Figma modules, design diff, and every environment variable.
+- [Overview](https://playguard.dev/): what PlayGuard is, with before/after numbers and an interactive config builder.
+- [How PlayGuard works](https://playguard.dev/docs/): full technical walkthrough — upstreams, routing, compaction, session recovery, Figma (Framelink and official), Chrome DevTools, Shopify Dev and Context7, accessibility audit, design diff, and every environment variable.
 - [Source on GitHub](https://github.com/ZenyaDAR/PlayGuard): MIT licensed, tests run in CI on every push.
 - [Package on npm](https://www.npmjs.com/package/playguard): `npx -y playguard@latest`.

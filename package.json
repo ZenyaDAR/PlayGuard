@@ -1,6 +1,7 @@
 {
   "name": "playguard",
-  "version": "0.10.0",
+  "mcpName": "io.github.ZenyaDAR/playguard",
+  "version": "0.10.1",
   "description": "Proxy MCP: one MCP server that runs Playwright, Figma, Chrome DevTools, Shopify Dev and Context7 under the hood and optimizes their responses — fewer tokens, session recovery, caching",
   "keywords": [
     "mcp",

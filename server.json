@@ -1,0 +1,55 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.ZenyaDAR/playguard",
+  "title": "PlayGuard",
+  "description": "Proxy MCP for Playwright, Figma, DevTools, Shopify Dev, Context7 — fewer tokens, caching",
+  "websiteUrl": "https://playguard.dev",
+  "repository": {
+    "url": "https://github.com/ZenyaDAR/PlayGuard",
+    "source": "github",
+    "id": "1272564262"
+  },
+  "version": "0.10.1",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "playguard",
+      "version": "0.10.1",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "FIGMA_MCP_CMD",
+          "description": "Command that starts the Framelink Figma MCP (enables Figma tools)",
+          "isRequired": false,
+          "format": "string"
+        },
+        {
+          "name": "FIGMA_MCP_URL",
+          "description": "Official Figma desktop MCP URL, e.g. http://127.0.0.1:3845/mcp",
+          "isRequired": false,
+          "format": "string"
+        },
+        {
+          "name": "DEVTOOLS_MCP_CMD",
+          "description": "Command that starts Chrome DevTools MCP, e.g. npx -y chrome-devtools-mcp@latest",
+          "isRequired": false,
+          "format": "string"
+        },
+        {
+          "name": "SHOPIFY_DEV_MCP_CMD",
+          "description": "Command that starts Shopify Dev MCP",
+          "isRequired": false,
+          "format": "string"
+        },
+        {
+          "name": "CONTEXT7_MCP_CMD",
+          "description": "Command that starts Context7 MCP",
+          "isRequired": false,
+          "format": "string"
+        }
+      ]
+    }
+  ]
+}

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.1 — 2026-11-01
+
+### Added
+- Listed in the official MCP Registry as `io.github.ZenyaDAR/playguard`
+  (`server.json`, `mcpName` in `package.json`). No code changes.
+
 ## 0.10.0 — 2026-11-01
 
 ### Added

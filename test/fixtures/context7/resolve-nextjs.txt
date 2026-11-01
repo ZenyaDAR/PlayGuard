@@ -1,0 +1,38 @@
+Available Libraries:
+
+- Title: Next.js
+- Context7-compatible library ID: /vercel/next.js
+- Description: Next.js enables you to create full-stack web applications by extending the latest React features and integrating powerful Rust-based JavaScript tooling for the fastest builds.
+- Code Snippets: 6393
+- Source Reputation: High
+- Benchmark Score: 76.55
+- Versions: v14.3.0-canary.87, v13.5.11, v15.1.8, v15.4.0-canary.82, v12.3.7, v11.1.3, v16.0.3, __branch__01-02-copy_58398, v16.1.0, v16.1.1, v15.1.11, v16.1.5, v16.1.6, v16.2.2, __branch__15-6-0-canary-57, v16.2.9
+----------
+- Title: Next.js
+- Context7-compatible library ID: /websites/nextjs
+- Description: Next.js is a React framework for building full-stack web applications. It provides additional features and optimizations, automatically configuring lower-level tools to help developers focus on building products quickly.
+- Code Snippets: 6876
+- Source Reputation: High
+- Benchmark Score: 75.54
+- Versions: 15
+----------
+- Title: Learn Next.js
+- Context7-compatible library ID: /vercel/next-learn
+- Description: A comprehensive collection of starter templates and final code examples for Next.js learning courses, covering App Router, data fetching, databases, authentication, basics, TypeScript, and SEO.
+- Code Snippets: 265
+- Source Reputation: High
+- Benchmark Score: 69.75
+----------
+- Title: Next.js Commerce
+- Context7-compatible library ID: /vercel/commerce
+- Description: A high-performance, server-rendered Next.js App Router ecommerce application template utilizing React Server Components, Server Actions, and other modern Next.js features.
+- Code Snippets: 427
+- Source Reputation: High
+- Benchmark Score: 69.37
+----------
+- Title: Next.js Boilerplate
+- Context7-compatible library ID: /ixartz/next-js-boilerplate
+- Description: A production-ready Next.js starter template with App Router, TypeScript, Tailwind CSS, authentication, database ORM, testing, and comprehensive developer tools.
+- Code Snippets: 332
+- Source Reputation: High
+- Benchmark Score: 58.97

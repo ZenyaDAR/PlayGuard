@@ -38,7 +38,17 @@ server.setRequestHandler(CallToolRequestSchema, async ({ params: { name, argumen
   record({ name, args });
   switch (name) {
     case "browser_navigate": return text(withCode(`### Page\n- Page URL: ${args.url}`, `await page.goto('${args.url}');`));
-    case "browser_evaluate": return text(withCode("### Result\n42", "await page.evaluate('() => 42');"));
+    case "browser_evaluate":
+      // playguard_a11y_audit: answer like the in-page axe script would (no real browser here).
+      if (String(args.function).includes("window.axe.run")) {
+        if (String(args.function).includes('"#missing"')) return text(`### Result\n${JSON.stringify({ _error: "No elements found for include in page Context", url: "https://a.test/" })}`);
+        const v = [
+          { id: "image-alt", impact: "critical", help: "Images must have alternative text", helpUrl: "https://dequeuniversity.com/rules/axe/4.14/image-alt", n: 1,
+            nodes: [{ t: "img.hero", h: "<img class=\"hero\" src=\"/a.png\">", f: "Element does not have an alt attribute" }] },
+        ];
+        return text(`### Result\n${JSON.stringify({ v, passes: 30, incomplete: ["color-contrast"], version: "4.14.0", url: "https://a.test/" }, null, 2)}`);
+      }
+      return text(withCode("### Result\n42", "await page.evaluate('() => 42');"));
     case "browser_snapshot": return text(`### Page snapshot\n\`\`\`yaml\n${SNAPSHOT}\n\`\`\``);
     case "browser_click":
       if (args.target === "timeout") return text("### Result\nTimeoutError: locator.click: Timeout 5000ms exceeded.\nCall log:\n  - waiting for locator", true);

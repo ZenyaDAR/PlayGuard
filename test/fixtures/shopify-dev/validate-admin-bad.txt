@@ -1,0 +1,17 @@
+## Validation Summary
+
+**Overall Status:** ❌ INVALID
+**Total Code Blocks:** 1
+
+## Detailed Results
+
+### Code Block 1
+**Artifact ID:** artifact-52c1ef3c-9117-4f8b-a51e-3a1accfbba51
+**Revision:** 1
+*Use same ID & increment revision when retrying on an improvement of this artifact*
+
+**Status:** ❌ FAILED
+**Details:** GraphQL validation errors: Cannot query field "price" on type "Product".; Cannot query field "swatchColor" on type "Product".; Cannot query field "inventoryCount" on type "ProductVariant". Did you mean "inventoryItem", "inventoryPolicy", or "inventoryQuantity"?
+
+
+Version validated against is 2026-10.

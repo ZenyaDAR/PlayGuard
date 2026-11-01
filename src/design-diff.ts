@@ -4,7 +4,7 @@
 // diffs them with px/color tolerance.
 //
 // Two upstream Figma MCP formats are supported: the raw REST API shape
-// (@figma/mcp) and Framelink's pre-simplified shape (figma-developer-mcp),
+// (raw Figma REST API JSON) and Framelink's pre-simplified shape (figma-developer-mcp),
 // which hoists shared styles into a `globalVars.styles` table and leaves
 // string references behind on the nodes.
 

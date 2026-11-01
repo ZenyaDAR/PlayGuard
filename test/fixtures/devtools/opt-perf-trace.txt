@@ -1,0 +1,52 @@
+The performance trace has been stopped.
+## Summary of Performance trace findings:
+URL: https://playguard.dev/
+Trace bounds: {min: 33637465641µs, max: 33642672456µs}
+CPU throttling: 1x
+Network throttling: none
+
+# Available insight sets
+
+The following is a list of insight sets. An insight set covers a specific part of the trace, split by navigations. The insights within each insight set are specific to that part of the trace. Be sure to consider the insight set id and bounds when calling functions. If no specific insight set or navigation is mentioned, assume the user is referring to the first one.
+
+## insight set id: NAVIGATION_0
+
+URL: https://playguard.dev/
+Bounds: {min: 33637470809µs, max: 33642672456µs}
+Metrics (lab / observed):
+  - LCP: 270 ms, event: (eventKey: r-4199, ts: 33637740959), nodeId: 36
+  - LCP breakdown:
+    - TTFB: 2 ms, bounds: {min: 33637470809µs, max: 33637472496.000004µs}
+    - Render delay: 268 ms, bounds: {min: 33637472496.000004µs, max: 33637740959µs}
+  - CLS: 0.00
+Metrics (field / real users): n/a – no data for this page in CrUX
+Available insights:
+  - insight name: LCPBreakdown
+    description: Each [subpart has specific improvement strategies](https://developer.chrome.com/docs/performance/insights/lcp-breakdown). Ideally, most of the LCP time should be spent on loading the resources, not within delays.
+    relevant trace bounds: {min: 33637470809µs, max: 33637740959µs}
+    example question: Help me optimize my LCP score
+    example question: Which LCP subpart was most problematic?
+    example question: What can I do to reduce the LCP time for this page load?
+  - insight name: NetworkDependencyTree
+    description: [Avoid chaining critical requests](https://developer.chrome.com/docs/performance/insights/network-dependency-tree) by reducing the length of chains, reducing the download size of resources, or deferring the download of unnecessary resources to improve page load
+    relevant trace bounds: {min: 33637471488µs, max: 33637667702µs}
+    example question: How do I optimize my network dependency tree?
+  - insight name: DOMSize
+    description: A large DOM can increase the duration of style calculations and layout reflows, impacting page responsiveness. A large DOM will also increase memory usage. [Learn how to avoid an excessive DOM size](https://developer.chrome.com/docs/performance/insights/dom-size).
+    relevant trace bounds: {min: 33637528518µs, max: 33637711022µs}
+    example question: How can I reduce the size of my DOM?
+  - insight name: ThirdParties
+    description: 3rd party code can significantly impact load performance. [Reduce and defer loading of 3rd party code](https://developer.chrome.com/docs/performance/insights/third-parties) to prioritize your page’s content.
+    relevant trace bounds: {min: 33637480013µs, max: 33637753551µs}
+    example question: Which third parties are having the largest impact on my page performance?
+  - insight name: Cache
+    description: A long cache lifetime can speed up repeat visits to your page. [Learn more about caching](https://developer.chrome.com/docs/performance/insights/cache).
+    relevant trace bounds: {min: 33637479408µs, max: 33637667286µs}
+    estimated metric savings: FCP 0 ms, LCP 0 ms
+    example question: What caching strategies can I apply to improve my page performance?
+  - insight name: LegacyJavaScript
+    description: Polyfills and transforms enable older browsers to use new JavaScript features. However, many aren’t necessary for modern browsers. Consider modifying your JavaScript build process to not transpile [Baseline](https://web.dev/articles/baseline-and-polyfills) features, unless you know you must support older browsers. [Learn why most sites can deploy ES6+ code without transpiling](https://developer.chrome.com/docs/performance/insights/legacy-javascript).
+    relevant trace bounds: {min: 33637480013µs, max: 33637520740µs}
+    estimated metric savings: FCP 0 ms, LCP 0 ms
+    estimated wasted bytes: 10.5 kB
+    example question: Is my site polyfilling modern JavaScript features?

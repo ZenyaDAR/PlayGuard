@@ -1,0 +1,45 @@
+## Request https://example.test/account
+Status: 403
+### Request Headers
+- upgrade-insecure-requests:1
+- user-agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36
+- sec-ch-ua:"Not:A-Brand";v="8", "Chromium";v="156"
+- sec-ch-ua-mobile:?0
+- sec-ch-ua-platform:"Windows"
+- :authority:example.test
+- :method:GET
+- :path:/account
+- :scheme:https
+- accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
+- accept-encoding:gzip, deflate, br, zstd
+- accept-language:en-US,en;q=0.9
+- cookie:session=abc123; theme=dark
+- priority:u=0, i
+- sec-fetch-dest:document
+- sec-fetch-mode:navigate
+- sec-fetch-site:none
+- authorization:Bearer test-token
+### Response Headers
+- accept-ch:Sec-CH-UA-Model
+- alt-svc:h3=":443"; ma=86400
+- cache-control:private, max-age=0
+- content-security-policy:default-src 'self'; script-src 'self' 'unsafe-eval' cdn.example.test static.example.test analytics.example.test; style-src 'self' 'unsafe-inline' cdn.example.test; img-src 'self' data: blob: images.example.test; connect-src 'self' api.example.test; frame-ancestors 'none'; report-uri /csp-report
+- content-security-policy-report-only:default-src 'none'
+- content-type:text/html; charset=UTF-8
+- location:/login
+- nel:{ "report_to": "nel", "max_age": 604800 }
+- permissions-policy:interest-cohort=()
+- report-to:{ "group": "nel", "max_age": 604800, "endpoints": [{ "url": "https://reports.example.test/nel" }] }
+- server-timing:cache;desc="miss"
+- set-cookie:a=1; Path=/; HttpOnly
+ b=2; Path=/; Secure
+- x-request-id:00000000-1111-2222-3333-444444444444
+### Response Body
+<!DOCTYPE html>
+<html>
+<head><title>Forbidden</title></head>
+<body>
+### Not a section, just markdown-looking page text
+<p>You do not have access to this page.</p>
+</body>
+</html>

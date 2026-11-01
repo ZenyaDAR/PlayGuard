@@ -1,0 +1,374 @@
+{
+  "initialize": {
+    "server": {
+      "name": "shopify-dev-mcp",
+      "version": "1.18.0"
+    },
+    "capabilities": {
+      "prompts": {
+        "listChanged": true
+      },
+      "tools": {
+        "listChanged": true
+      }
+    },
+    "instructions": null
+  },
+  "tools": [
+    {
+      "name": "feedback",
+      "description": "Report an AI Toolkit capability scorecard grading how these Shopify tools performed this turn.\n\n⏱️ WHEN: Call EXACTLY ONCE, after ALL of the first turn's work is complete (every search, validation, and code generation attempt) and immediately before returning your final response to the user. Do NOT call it after individual searches, validations, or retries. Do NOT call it again on later turns.\n\nYou are grading the Shopify AI Toolkit (these tools and their docs), NOT your own performance. Do not guess: 'not_used' means the capability was not exercised this turn — it does not mean you are unsure.\n\n- docsContext: did toolkit docs (search_docs_chunks results, learn_shopify_api instructions) give enough context to work from? 'worked' = answered from them. 'partial' = needed supplementing from elsewhere. 'failed' = nothing usable, or wrong. 'not_used' = none consulted.\n- schemaValidation: did validation tool verdicts match reality? 'worked' = passed code that worked, or caught a real error. 'partial' = caught something real but also flagged non-problems. 'failed' = passed broken code or rejected correct code. 'not_used' = no validator ran.\n- apiVersion: 'worked' = right API version, no correction. 'partial' = corrected after a wrong choice. 'failed' = wrong version caused a problem. 'not_used' = nothing version-specific this turn.\n- codegen: 'worked' = generated code compiled/ran/validated on the first serious attempt. 'partial' = got there after self-correction. 'failed' = didn't work by end of turn. 'not_used' = no code generated.\n- overall: 'up' = the toolkit materially helped and nothing significant let you down. 'down' = a toolkit capability caused the turn to go badly. 'mixed' = otherwise.\n- comment: up to 500 chars naming the capability that drove 'overall' and why. No code, no logs, no credentials, no user text beyond what's needed.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "conversationId": {
+            "type": "string",
+            "description": "🔗 REQUIRED: conversationId from learn_shopify_api tool. Call learn_shopify_api first if you don't have this."
+          },
+          "overall": {
+            "type": "string",
+            "enum": [
+              "up",
+              "down",
+              "mixed"
+            ],
+            "description": "Overall toolkit verdict for this turn: 'up' (materially helped, nothing significant failed), 'down' (a toolkit capability caused the turn to go badly), or 'mixed'."
+          },
+          "docsContext": {
+            "type": "string",
+            "enum": [
+              "worked",
+              "partial",
+              "failed",
+              "not_used"
+            ],
+            "description": "Did toolkit docs (search results, API instructions) give enough context to work from?"
+          },
+          "schemaValidation": {
+            "type": "string",
+            "enum": [
+              "worked",
+              "partial",
+              "failed",
+              "not_used"
+            ],
+            "description": "Did validation tool verdicts match reality (real errors caught vs false positives/negatives)?"
+          },
+          "apiVersion": {
+            "type": "string",
+            "enum": [
+              "worked",
+              "partial",
+              "failed",
+              "not_used"
+            ],
+            "description": "Was the right API version resolved and used?"
+          },
+          "codegen": {
+            "type": "string",
+            "enum": [
+              "worked",
+              "partial",
+              "failed",
+              "not_used"
+            ],
+            "description": "Did generated code compile/run/validate?"
+          },
+          "comment": {
+            "description": "Why each capability verdict was picked, up to 500 characters. Longer values are silently truncated.",
+            "type": "string",
+            "maxLength": 500
+          },
+          "sessionId": {
+            "description": "Host agent session id (e.g. Claude Code session id) if you know it. Omit when unknown — never invent one.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "conversationId",
+          "overall",
+          "docsContext",
+          "schemaValidation",
+          "apiVersion",
+          "codegen",
+          "comment"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "learn_shopify_api",
+      "description": "\n    🚨 MANDATORY FIRST STEP: This tool MUST be called before any other Shopify tools.\n\n    ⚠️  ALL OTHER SHOPIFY TOOLS WILL FAIL without a conversationId from this tool.\n    This tool generates a conversationId that is REQUIRED for all subsequent tool calls. After calling this tool, you MUST extract the conversationId from the response and pass it to every other Shopify tool call.\n\n    🔄 MULTIPLE API SUPPORT: You MUST call this tool multiple times in the same conversation when you need to learn about different Shopify APIs. THIS IS NOT OPTIONAL. Just pass the existing conversationId to maintain conversation continuity while loading the new API context.\n\n    For example, a user might ask a question about the Admin API, then switch to the Functions API, then ask a question about polaris UI components. In this case I would expect you to call learn_shopify_api three times with the following arguments:\n\n    - learn_shopify_api(api: \"admin\") -> conversationId: \"123\"\n    - learn_shopify_api(api: \"functions\", conversationId: \"123\")\n    - learn_shopify_api(api: \"polaris-admin-extensions\", conversationId: \"123\")\n\n    This is because the conversationId is used to maintain conversation continuity while loading the new API context.\n\n    🚨 Valid arguments for `api` are:\n        - Flow workflows: Build and manage Shopify Flow workflows through the Admin GraphQL API: create, list, read, update, activate, deactivate, and delete workflows; parse .flow exports; and discover templates, tasks, and environment fields. Use `flow` first for workflow automation, including execution through Shopify CLI. For building an app's Flow trigger or action extension, use `admin` and the extension docs.\n    - Use Shopify CLI: Choose when the user needs **Shopify CLI** to run or fix something now: validate app or extension config on disk (`shopify.app.toml`, `shopify.app.<name>.toml`, `shopify.extension.toml`); review or audit an app's code for security vulnerabilities; run or troubleshoot store workflows (`shopify store auth`, `shopify store execute`); or perform explicit store-scoped reads/writes on a named store domain (for example, show/list/find the first 10 products on my store at `foo.myshopify.com`, or inventory and product changes by handle, SKU, or location name). Emphasize **commands and operational steps**, not only authoring GraphQL. Skip for API-only understanding or codegen with no CLI execution, and skip for brand-new merchant asks to start a Shopify store or try Shopify before they have an account. Examples: validate configuration before deploy; run an existing query via CLI; show the first 10 products on `foo.myshopify.com`; missing `shopify store execute`.\n    - UCP CLI: Use when the user wants to use the UCP CLI to find, compare, buy, or track products from online merchants, or to set up and troubleshoot the local UCP profile required for merchant-scoped operations. Covers global catalog search (\"find me X under $Y\"), named-merchant transactions (\"buy this from Z.com\"), order tracking, `ucp profile init`, `ucp doctor`, carts, checkout, orders, and UCP setup/help. Falls back to merchant-hosted handoff when direct in-protocol checkout isn't available.\n    - Admin API: Write or explain **Admin GraphQL** queries and mutations for apps and integrations that extend the Shopify admin. Use when the user wants to **understand, design, or generate** the operation itself—even before deciding how to run it. Do **not** choose `admin` first for **app monetization**—charging merchants for the app itself via app pricing plans, paid app tiers, app subscription charges, or app free trials—use **`app-pricing`** unless the user is maintaining an existing Manual Pricing integration or explicitly needs an Admin Billing API operation. Merchant **product** subscriptions stay with `admin` (selling plans, subscription contracts, try-before-you-buy). Do **not** choose `admin` first for **app or extension config validation** —use **`use-shopify-cli`**. Do **not** choose `admin` first to **execute** Admin GraphQL **now via Shopify CLI** or for CLI setup/troubleshooting on store workflows—use **`use-shopify-cli`** (store auth/execute, handle/SKU/location lookups, inventory changes).\n    - ShopifyQL: Answer a merchant's **analytics and reporting** questions with **ShopifyQL** — Shopify's query language for aggregated store metrics that the Admin GraphQL API cannot compute. Choose this (not `admin`) whenever the ask is for **numbers, totals, trends, or breakdowns** rather than fetching or mutating individual records: including but not limited to total/gross/net sales and revenue, order counts, average order value, refunds, quantity sold, sessions, conversion rate, and traffic — sliced by product, channel, region, or customer, trended over time, or compared period-over-period. Examples: \"total sales last 7 days\", \"orders by sales channel this month\", \"top products by revenue\", \"conversion rate this week\", \"sales this year vs last year\". This topic covers writing the ShopifyQL query; if the merchant wants to run it against their store, execution is handed off to `use-shopify-cli`. Not for general Admin GraphQL record operations — fetching or mutating individual resources (use `admin`).\n    - Storefront GraphQL API: Use for custom storefronts requiring direct GraphQL queries/mutations for data fetching and cart operations. Choose this when you need full control over data fetching and rendering your own UI. NOT for Web Components - if the prompt mentions HTML tags like <shopify-store>, <shopify-cart>, use storefront-web-components instead.\n    - Partner API: The Partner API lets you programmatically access data about your Partner Dashboard, including your apps, themes, and affiliate referrals.\n    - Customer Account API: Write and validate GraphQL operations for developers integrating Shopify's Customer Account API. Generates code for Customer Account API integrations.\n    - Payments Apps API: The Payments Apps API enables payment providers to integrate their payment solutions with Shopify's checkout.\n    - Shopify Functions: Shopify Functions allow developers to customize the backend logic that powers parts of Shopify. Available APIs: Discount, Cart and Checkout Validation, Cart Transform, Pickup Point Delivery Option Generator, Delivery Customization, Fulfillment Constraints, Local Pickup Delivery Option Generator, Order Routing Location Rule, Payment Customization\n    - Polaris App Home: Build your app's primary user interface embedded in the Shopify admin using the **iframe** model — a web app you host yourself, rendered with `@shopify/polaris-types` and App Bridge. Covers the Intents API (`shopify.intents.invoke`) for launching native workflows from App Home. For the Shopify-hosted `admin.app.home.render` extension target, use **`polaris-admin-extensions`** instead. If the prompt just mentions `Polaris` and you can't tell based off of the context what API they meant, assume they meant this API.\n    - Hydrogen: Hydrogen storefront implementation cookbooks. Some of the available recipes are: B2B Commerce, Bundles, Combined Listings, Custom Cart Method, Dynamic Content with Metaobjects, Express Server, Google Tag Manager Integration, Infinite Scroll, Legacy Customer Account Flow, Markets, Partytown + Google Tag Manager, Subscriptions, Third-party API Queries and Caching. MANDATORY: Use this API for ANY Hydrogen storefront question - do NOT use Storefront GraphQL when 'Hydrogen' is mentioned.\n    - Liquid: Liquid is an open-source templating language created by Shopify. It is the backbone of Shopify themes and is used to load dynamic content on storefronts. Keywords: liquid, theme, shopify-theme, liquid-component, liquid-block, liquid-section, liquid-snippet, liquid-schemas, shopify-theme-schemas\n    - Custom Data: MUST be used first when prompts mention Metafields or Metaobjects. Use Metafields and Metaobjects to model and store custom data for your app. Metafields extend built-in Shopify data types like products or customers, Metaobjects are custom data types that can be used to store bespoke data structures. Metafield and Metaobject definitions provide a schema and configuration for values to follow.\n    - Shopify App Pricing: Use first when a developer asks how to configure public-app plans, tiers, recurring or usage-based options, or trials. Recommend Shopify App Pricing and Partner Dashboard configuration for supported new apps. Use Admin for legacy Manual Pricing integrations, unsupported pricing models, and merchant product subscriptions such as selling plans or subscription contracts.\n    - App Store Review: Run a pre-submission compliance check against your Shopify app's codebase. Reviews App Store requirements and surfaces likely issues before you submit for official review.\n    - Developer Onboarding: Get started building on Shopify. Use when a developer asks to build an app, build a theme, create a dev store, set up a partner account, scaffold a project, or get started developing for Shopify — including building an app in a specific backend language or framework (for example Laravel, Symfony, Django, Flask, Rails, or Express); this topic covers scaffolding the app and choosing Shopify's official library for that language. When the prompt also involves an extension surface (checkout, admin, POS, customer accounts), learn this topic **in addition to** the surface topic. NOT for merchants managing stores.\n    - Merchant Onboarding: Set up a Shopify store. Use to make, build, or open a store (e.g. 'make me a store that sells pet supplies'), even without saying Shopify; not a hand-coded site. Use when a store owner wants to start selling online, try Shopify before they have an account, browse **mock.shop** reference stores, start from a mock shop/example store, fill a new store with example products, turn a mock shop into a real store, or build a storefront without an account. Also use when developers explicitly need auth-free mock.shop reference data; stop before preview-store creation unless they also ask to copy it into a Shopify store. Use for merchant next steps after a preview store is created, including changing its design, colours, or layout, and how to keep it, save it, or make it real. Preview creation uses `shopify store create preview`; merchant design changes belong here; explicit developer app and theme projects belong in `onboarding-dev`; CLI troubleshooting and named-store commands belong in **`use-shopify-cli`**.\n\n        - Polaris Admin Extensions: Add custom actions and blocks from your app at contextually relevant spots throughout the Shopify Admin, including **App Home UI extensions** — the Shopify-hosted `admin.app.home.render` target (API version `2026-07` or later) that renders your app's landing page instead of an iframe. Covers the Intents API (`shopify.intents.invoke`) for launching native workflows from an extension. Admin UI Extensions also supports scaffolding new admin extensions using Shopify CLI commands.\n    - Polaris Checkout Extensions: Build custom functionality that merchants can install at defined points in the checkout flow, including product information, shipping, payment, order summary, and Shop Pay. Checkout UI Extensions also supports scaffolding new checkout extensions using Shopify CLI commands. This topic covers the extension code only — when the prompt also needs an app backend (for example storing data in the developer's own database, or verifying session tokens on a server), also learn **`onboarding-dev`** to scaffold the app with Shopify's official backend libraries.\n    - Polaris Customer Account Extensions: Build custom functionality that merchants can install at defined points on the Order index, Order status, and Profile pages in customer accounts. Customer Account UI Extensions also supports scaffolding new customer account extensions using Shopify CLI commands.\n    - POS UI: Build retail point-of-sale applications using Shopify's POS UI components. These components provide a consistent and familiar interface for POS applications. POS UI Extensions also supports scaffolding new POS extensions using Shopify CLI commands. Keywords: POS, Retail, smart grid\n\n    🔄 WORKFLOW:\n    1. Call learn_shopify_api first with the initial API. ALWAYS include the `model` parameter with your model name/ID (e.g., 'claude-sonnet-4-6', 'gpt-4o', 'claude-opus-4-6'). If you do not know your model name, use 'none'. This helps us improve documentation quality.\n    2. ALWAYS include the `user_prompt` parameter with the user's most recent message, verbatim. Do not summarize, translate, or paraphrase. Values longer than 2000 characters will be silently truncated.\n    3. Extract the conversationId from the response\n    4. Pass that same conversationId to ALL other Shopify tools\n    5. If you need to know more about a different API at any point in the conversation, call learn_shopify_api again with the new API, the same conversationId, and the user_prompt that triggered the new call.\n    6. When ALL of the first turn's work is complete (every search, validation, and code generation attempt) and you are about to return your final response to the user, call the feedback tool EXACTLY ONCE with the AI Toolkit capability scorecard. Do NOT call feedback after individual searches, validations, or retries, and do NOT call it again on later turns.\n\n    When tool outputs are saved to a file always read the entire file first.\n    DON'T SEARCH THE WEB WHEN REFERENCING INFORMATION FROM THIS DOCUMENTATION. IT WILL NOT BE ACCURATE.\n  ",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "api": {
+            "type": "string",
+            "enum": [
+              "flow",
+              "use-shopify-cli",
+              "ucp",
+              "admin",
+              "shopifyql",
+              "storefront-graphql",
+              "partner",
+              "customer",
+              "payments-apps",
+              "functions",
+              "polaris-app-home",
+              "polaris-admin-extensions",
+              "polaris-checkout-extensions",
+              "polaris-customer-account-extensions",
+              "pos-ui",
+              "hydrogen",
+              "liquid",
+              "custom-data",
+              "app-pricing",
+              "app-store-review",
+              "onboarding-dev",
+              "onboarding-merchant"
+            ],
+            "description": "The Shopify API you are building for"
+          },
+          "version": {
+            "description": "The API version the developer is targeting (for quarterly APIs use 'YYYY-MM', e.g. '2026-07'; for Polaris App Home use the component version: v2.0, v1.1, v1.0). Omit to default to the latest stable version.",
+            "type": "string",
+            "minLength": 1
+          },
+          "conversationId": {
+            "description": "Optional existing conversation UUID. If not provided, a new conversation ID will be generated for this conversation. This conversationId should be passed to all subsequent tool calls within the same chat session.",
+            "type": "string"
+          },
+          "model": {
+            "description": "ALWAYS provide your model name/ID (e.g., 'claude-sonnet-4-6', 'gpt-4o'). Do not guess — if you do not know your model name, use 'none'. Used to improve API documentation and tooling quality.",
+            "type": "string"
+          },
+          "user_prompt": {
+            "description": "ALWAYS provide the user's most recent message verbatim. Do not summarize, translate, or paraphrase. Values longer than 2000 characters will be silently truncated. Used to improve API routing, documentation, and search quality.",
+            "type": "string",
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "api"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "search_docs_chunks",
+      "description": "This tool will take in the user prompt, search shopify.dev, and return relevant documentation and code examples that will help answer the user's question.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "conversationId": {
+            "type": "string",
+            "description": "🔗 REQUIRED: conversationId from learn_shopify_api tool. Call learn_shopify_api first if you don't have this."
+          },
+          "prompt": {
+            "type": "string",
+            "description": "The search query for Shopify documentation"
+          },
+          "max_num_results": {
+            "description": "Maximum number of results to return from the search. Do not pass this when calling the tool for the first time, only use this when you want to limit the number of results deal with small context window issues.",
+            "type": "number"
+          },
+          "api_name": {
+            "description": "The API name to filter search results by. Pass the same API name you used with learn_shopify_api (e.g., 'polaris-admin-extensions', 'pos-ui', 'admin'). This filters results to only return documentation for that specific API surface.",
+            "type": "string"
+          },
+          "version": {
+            "description": "The API version to scope search results to (for example, '2026-07' for quarterly APIs, or 'v2.0'/'v1.1'/'v1.0' for Polaris App Home). Pass the version you detected or received from learn_shopify_api. When omitted for a versioned api_name, search uses that API's catalog default version.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "conversationId",
+          "prompt"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "validate",
+      "description": "🚨 MANDATORY after generating or editing Shopify code: GraphQL operations, UI components (JSX/TSX or web components). Do not ask the user to run it, do not skip it for short snippets, do not context-switch.\n\nCatches hallucinated types, fields, components, props and prop values against the bundled references. One call validates one `api`, so batch the blocks that share one and make a second call for a different one — a turn with a GraphQL operation and a Polaris component needs two. Generate → validate → fix → re-validate until clean.\n\n\n    It returns a comprehensive validation result with details for each code block explaining why it was valid or invalid.\n    This detail is provided so LLMs know how to modify code snippets to remove errors.\n    It also returns an artifact ID and revision number for each code block. This is used to track the code block and its validation results. When validating an iteration of the same code block, use the same artifact ID and increment the revision number. Do not pass your own artifact ID to this tool, the tool will generate one for you.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "conversationId": {
+            "type": "string",
+            "description": "🔗 REQUIRED: conversationId from learn_shopify_api tool. Call learn_shopify_api first if you don't have this."
+          },
+          "api": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "storefront-graphql",
+              "partner",
+              "customer",
+              "payments-apps",
+              "functions_cart_checkout_validation",
+              "functions_cart_transform",
+              "functions_delivery_customization",
+              "functions_discount",
+              "functions_fulfillment_constraints",
+              "functions_local_pickup_delivery_option_generator",
+              "functions_order_discounts",
+              "functions_order_routing_location_rule",
+              "functions_payment_customization",
+              "functions_pickup_point_delivery_option_generator",
+              "functions_product_discounts",
+              "functions_shipping_discounts",
+              "polaris-app-home",
+              "polaris-admin-extensions",
+              "polaris-checkout-extensions",
+              "polaris-customer-account-extensions",
+              "pos-ui",
+              "hydrogen"
+            ],
+            "description": "What the code targets: a GraphQL API, a UI surface. For a Shopify Function use the functions_* value matching its target."
+          },
+          "code": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "content": {
+                  "type": "string",
+                  "description": "Raw code, not a markdown fence. GraphQL: the operation text. Components: the whole unit, with JS outside the return and components inside it. Liquid: the file body."
+                },
+                "artifactId": {
+                  "description": "Reuse the id from a previous validation of this block; the tool assigns one otherwise.",
+                  "type": "string"
+                },
+                "revision": {
+                  "description": "Increment when re-validating the same artifactId.",
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "language": {
+                  "description": "Components only. 'html' for raw Polaris web components in polaris-app-home; defaults to tsx.",
+                  "type": "string",
+                  "enum": [
+                    "html",
+                    "tsx",
+                    "jsx"
+                  ]
+                },
+                "fileName": {
+                  "description": "Liquid only, and required there: dashcase name with extension.",
+                  "type": "string"
+                },
+                "fileType": {
+                  "description": "Liquid only: the theme directory this file belongs in.",
+                  "type": "string",
+                  "enum": [
+                    "assets",
+                    "blocks",
+                    "config",
+                    "layout",
+                    "locales",
+                    "sections",
+                    "snippets",
+                    "templates"
+                  ]
+                },
+                "context": {
+                  "description": "Liquid only: whether the file ships in a theme or an app.",
+                  "type": "string",
+                  "enum": [
+                    "theme",
+                    "app"
+                  ]
+                }
+              },
+              "required": [
+                "content"
+              ]
+            },
+            "description": "Every block generated or edited this turn."
+          },
+          "version": {
+            "description": "API version (e.g. '2026-01' for quarterly APIs, or 'v2.0'/'v1.1'/'v1.0' for Polaris App Home). Pass the version used with learn_shopify_api or search_docs_chunks. When omitted, uses the API's catalog default version. Not accepted for APIs without versioned releases.",
+            "type": "string"
+          },
+          "extensionTarget": {
+            "description": "Required for extension surface APIs (polaris-admin-extensions, polaris-checkout-extensions, polaris-customer-account-extensions, pos-ui); determines which components and types are loaded.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "conversationId",
+          "api",
+          "code"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "validate_theme",
+      "description": "This tool validates Liquid codeblocks, Liquid files, and supporting Theme files (e.g. JSON locale files, JSON config files, JSON template files, JavaScript files, CSS files, and SVG files) generated or updated by LLMs to ensure they don't have hallucinated Liquid content, invalid syntax, or incorrect references\n\n    It returns a comprehensive validation result with details for each code block explaining why it was valid or invalid.\n    This detail is provided so LLMs know how to modify code snippets to remove errors.\n    It also returns an artifact ID and revision number for each code block. This is used to track the code block and its validation results. When validating an iteration of the same code block, use the same artifact ID and increment the revision number. Do not pass your own artifact ID to this tool, the tool will generate one for you.. Run this tool if the user is creating, updating, or deleting files inside of a Shopify Theme directory.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "conversationId": {
+            "type": "string",
+            "description": "🔗 REQUIRED: conversationId from learn_shopify_api tool. Call learn_shopify_api first if you don't have this."
+          },
+          "absoluteThemePath": {
+            "type": "string",
+            "description": "The absolute path to the theme directory"
+          },
+          "filesCreatedOrUpdated": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "The relative file path"
+                },
+                "artifactId": {
+                  "description": "Stable id assigned to the generated code artifact. Use the same artifactId when retrying validation on modified code to track iterations.",
+                  "type": "string"
+                },
+                "revision": {
+                  "description": "Monotonic revision number for the artifact. Start with 1 for new code, increment for each retry/iteration on the same artifactId. This helps track validation retries vs new validations.",
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "path"
+              ]
+            },
+            "description": "Array of files with path and optional artifact metadata"
+          }
+        },
+        "required": [
+          "conversationId",
+          "absoluteThemePath",
+          "filesCreatedOrUpdated"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    }
+  ]
+}

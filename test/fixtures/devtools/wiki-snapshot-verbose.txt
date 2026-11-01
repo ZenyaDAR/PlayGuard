@@ -1,0 +1,379 @@
+## Latest page snapshot
+uid=6_0 RootWebArea "Chrome DevTools - Wikipedia" url="https://en.wikipedia.org/wiki/Chrome_DevTools"
+  uid=7_0 ignored
+    uid=7_1 generic
+      uid=6_1 generic live="polite" relevant="additions text"
+      uid=6_2 link "Jump to content" url="https://en.wikipedia.org/wiki/Chrome_DevTools#bodyContent"
+        uid=6_3 "Jump to content"
+      uid=7_2 ignored
+        uid=6_4 banner
+          uid=7_3 ignored
+            uid=6_5 navigation "Site"
+              uid=7_4 generic
+                uid=6_6 button "Main menu" haspopup="menu"
+                uid=7_5 ignored
+                  uid=7_6 ignored
+                  uid=7_7 ignored
+                    uid=7_8 ignored
+            uid=6_7 link "Wikipedia The Free Encyclopedia" url="https://en.wikipedia.org/wiki/Main_Page"
+              uid=7_9 ignored
+                uid=6_8 image "Wikipedia" url="https://en.wikipedia.org/static/images/mobile/copyright/wikipedia-wordmark-en-25.svg"
+                uid=6_9 image "The Free Encyclopedia" url="https://en.wikipedia.org/static/images/mobile/copyright/wikipedia-tagline-en-25.svg"
+          uid=7_10 ignored
+            uid=6_10 search
+              uid=7_11 ignored
+                uid=7_12 ignored
+                  uid=6_11 form
+                    uid=7_13 generic
+                      uid=7_14 generic
+                        uid=6_12 searchbox "Search Wikipedia" description="Search Wikipedia [alt-f]" keyshortcuts="Alt+f"
+                          uid=7_15 ignored
+                          uid=7_16 ignored
+                            uid=7_17 generic
+                        uid=7_18 ignored
+                    uid=6_13 button "Search"
+                      uid=7_19 "Search"
+            uid=6_14 navigation "Personal tools"
+              uid=7_20 ignored
+                uid=7_21 ignored
+                  uid=7_22 ignored
+                  uid=7_23 ignored
+                    uid=7_24 ignored
+                uid=7_25 generic
+                  uid=7_26 ignored
+                    uid=7_27 list
+                      uid=7_28 listitem level="1"
+                        uid=6_15 link "Donate" url="https://donate.wikimedia.org/?wmf_source=donate&wmf_medium=sidebar&wmf_campaign=en.wikipedia.org&uselang=en"
+                          uid=6_16 "Donate"
+                      uid=7_29 listitem level="1"
+                        uid=6_17 link "Create account" description="You are encouraged to create an account and log in; however, it is not mandatory" url="https://en.wikipedia.org/w/index.php?title=Special:CreateAccount&returnto=Chrome+DevTools"
+                          uid=6_18 "Create account"
+                      uid=7_30 listitem level="1"
+                        uid=6_19 link "Log in" description="You're encouraged to log in; however, it's not mandatory. [alt-o]" keyshortcuts="Alt+o" url="https://en.wikipedia.org/w/index.php?title=Special:UserLogin&returnto=Chrome+DevTools"
+                          uid=6_20 "Log in"
+              uid=7_31 ignored
+                uid=7_32 ignored
+                uid=7_33 ignored
+                  uid=7_34 ignored
+      uid=7_35 generic
+        uid=7_36 ignored
+          uid=7_37 ignored
+            uid=7_38 generic
+              uid=7_39 generic
+          uid=7_40 ignored
+            uid=7_41 ignored
+              uid=7_42 generic
+          uid=7_43 ignored
+            uid=6_21 main
+              uid=7_44 sectionheader
+                uid=6_22 heading "Chrome DevTools" level="1"
+                  uid=7_45 ignored
+                    uid=7_46 "Chrome DevTools"
+                uid=7_47 generic
+                  uid=6_23 button "Add languages" description="This article is only available in this language. Add the article for other languages" haspopup="menu"
+                  uid=7_48 ignored
+                    uid=7_49 ignored
+                    uid=7_50 ignored
+                      uid=7_51 ignored
+                    uid=7_52 ignored
+              uid=7_53 ignored
+                uid=7_54 ignored
+                  uid=7_55 generic
+                    uid=6_24 navigation "Namespaces"
+                      uid=7_56 generic
+                        uid=7_57 ignored
+                          uid=7_58 list
+                            uid=7_59 listitem level="1"
+                              uid=6_25 link "Article" description="View the content page (page does not exist) [alt-c]" keyshortcuts="Alt+c" url="https://en.wikipedia.org/w/index.php?title=Chrome_DevTools&action=edit&redlink=1"
+                                uid=7_60 ignored
+                                  uid=6_26 "Article"
+                                uid=7_61 generic
+                            uid=7_62 listitem level="1"
+                              uid=6_27 link "Talk" description="Discuss improvements to the content page (page does not exist) [alt-t]" keyshortcuts="Alt+t" url="https://en.wikipedia.org/w/index.php?title=Talk:Chrome_DevTools&action=edit&redlink=1"
+                                uid=7_63 ignored
+                                  uid=6_28 "Talk"
+                                uid=7_64 generic
+                      uid=7_65 ignored
+                        uid=7_66 ignored
+                          uid=7_67 ignored
+                  uid=7_68 generic
+                    uid=6_29 navigation "Views"
+                    uid=6_30 navigation "Page tools"
+                      uid=7_69 generic
+                        uid=6_31 button "Tools" haspopup="menu"
+                        uid=7_70 ignored
+                          uid=7_71 ignored
+                          uid=7_72 ignored
+                            uid=7_73 ignored
+              uid=7_74 ignored
+                uid=7_75 generic
+                  uid=6_32 navigation "Appearance"
+                    uid=7_76 generic
+                      uid=7_77 generic
+                        uid=7_78 generic
+                          uid=7_79 generic
+                            uid=6_33 "Appearance"
+                          uid=6_34 button "Hide Appearance"
+                            uid=7_80 "hide"
+                        uid=7_81 generic
+                          uid=7_82 generic
+                            uid=6_35 "Text"
+                          uid=7_83 ignored
+                            uid=7_84 list
+                              uid=7_85 listitem level="1"
+                                uid=7_86 ignored
+                                  uid=6_36 form
+                                    uid=7_87 generic
+                                      uid=6_37 radio "Small"
+                                      uid=7_88 ignored
+                                      uid=7_89 LabelText
+                                        uid=7_90 ignored
+                                          uid=6_38 "Small"
+                                    uid=7_91 generic
+                                      uid=6_39 radio "Standard" checked
+                                      uid=7_92 ignored
+                                      uid=7_93 LabelText
+                                        uid=7_94 ignored
+                                          uid=6_40 "Standard"
+                                    uid=7_95 generic
+                                      uid=6_41 radio "Large"
+                                      uid=7_96 ignored
+                                      uid=7_97 LabelText
+                                        uid=7_98 ignored
+                                          uid=6_42 "Large"
+                        uid=7_99 generic
+                          uid=7_100 generic
+                            uid=6_43 "Width"
+                          uid=7_101 ignored
+                            uid=7_102 list
+                              uid=7_103 listitem level="1"
+                                uid=7_104 ignored
+                                  uid=6_44 form
+                                    uid=7_105 generic
+                                      uid=6_45 radio "Standard" checked
+                                      uid=7_106 ignored
+                                      uid=7_107 LabelText
+                                        uid=7_108 ignored
+                                          uid=6_46 "Standard"
+                                    uid=7_109 generic
+                                      uid=6_47 radio "Wide"
+                                      uid=7_110 ignored
+                                      uid=7_111 LabelText
+                                        uid=7_112 ignored
+                                          uid=6_48 "Wide"
+                        uid=7_113 generic
+                          uid=7_114 generic
+                            uid=6_49 "Color"
+                          uid=7_115 ignored
+                            uid=7_116 list
+                              uid=7_117 listitem level="1"
+                                uid=7_118 ignored
+                                  uid=6_50 form
+                                    uid=7_119 generic
+                                      uid=6_51 radio "Automatic"
+                                      uid=7_120 ignored
+                                      uid=7_121 LabelText
+                                        uid=7_122 ignored
+                                          uid=6_52 "Automatic"
+                                    uid=7_123 generic
+                                      uid=6_53 radio "Light" checked
+                                      uid=7_124 ignored
+                                      uid=7_125 LabelText
+                                        uid=7_126 ignored
+                                          uid=6_54 "Light"
+                                    uid=7_127 generic
+                                      uid=6_55 radio "Dark"
+                                      uid=7_128 ignored
+                                      uid=7_129 LabelText
+                                        uid=7_130 ignored
+                                          uid=6_56 "Dark"
+              uid=7_131 generic "Chrome DevTools"
+                uid=7_132 ignored
+                  uid=7_133 generic
+                  uid=7_134 generic
+                    uid=6_57 "From Wikipedia, the free encyclopedia"
+                  uid=7_135 generic
+                    uid=7_136 generic
+                uid=7_137 generic
+                  uid=7_138 ignored
+                    uid=7_139 ignored
+                      uid=7_140 generic
+                        uid=7_141 ignored
+                          uid=7_142 generic
+                            uid=6_58 "Look for "
+                            uid=6_59 "Chrome DevTools"
+                            uid=6_60 " on one of Wikipedia's "
+                            uid=6_61 link "sister projects" description="Special:SiteMatrix" url="https://en.wikipedia.org/wiki/Special:SiteMatrix"
+                              uid=6_62 "sister projects"
+                            uid=6_63 ":"
+                            uid=7_143 ignored
+                              uid=7_144 list
+                                uid=7_145 listitem level="1"
+                                  uid=7_146 generic
+                                  uid=7_147 generic
+                                    uid=6_64 link "Wiktionary" description="wiktionary:Special:Search/Chrome DevTools" url="https://en.wiktionary.org/wiki/Special:Search/Chrome_DevTools"
+                                      uid=6_65 "Wiktionary"
+                                    uid=6_66 " (dictionary)"
+                                uid=7_148 listitem level="1"
+                                  uid=7_149 generic
+                                  uid=7_150 generic
+                                    uid=6_67 link "Wikibooks" description="wikibooks:Special:Search/Chrome DevTools" url="https://en.wikibooks.org/wiki/Special:Search/Chrome_DevTools"
+                                      uid=6_68 "Wikibooks"
+                                    uid=6_69 " (textbooks)"
+                                uid=7_151 listitem level="1"
+                                  uid=7_152 generic
+                                  uid=7_153 generic
+                                    uid=6_70 link "Wikiquote" description="wikiquote:Special:Search/Chrome DevTools" url="https://en.wikiquote.org/wiki/Special:Search/Chrome_DevTools"
+                                      uid=6_71 "Wikiquote"
+                                    uid=6_72 " (quotations)"
+                                uid=7_154 listitem level="1"
+                                  uid=7_155 generic
+                                  uid=7_156 generic
+                                    uid=6_73 link "Wikisource" description="wikisource:Special:Search/Chrome DevTools" url="https://en.wikisource.org/wiki/Special:Search/Chrome_DevTools"
+                                      uid=6_74 "Wikisource"
+                                    uid=6_75 " (library)"
+                                uid=7_157 listitem level="1"
+                                  uid=7_158 generic
+                                  uid=7_159 generic
+                                    uid=6_76 link "Wikiversity" description="wikiversity:Special:Search/Chrome DevTools" url="https://en.wikiversity.org/wiki/Special:Search/Chrome_DevTools"
+                                      uid=6_77 "Wikiversity"
+                                    uid=6_78 " (learning resources)"
+                                uid=7_160 listitem level="1"
+                                  uid=7_161 generic
+                                  uid=7_162 generic
+                                    uid=6_79 link "Commons" description="commons:Special:Search/Chrome DevTools" url="https://commons.wikimedia.org/wiki/Special:Search/Chrome_DevTools"
+                                      uid=6_80 "Commons"
+                                    uid=6_81 " (media)"
+                                uid=7_163 listitem level="1"
+                                  uid=7_164 generic
+                                  uid=7_165 generic
+                                    uid=6_82 link "Wikivoyage" description="wikivoyage:Special:Search/Chrome DevTools" url="https://en.wikivoyage.org/wiki/Special:Search/Chrome_DevTools"
+                                      uid=6_83 "Wikivoyage"
+                                    uid=6_84 " (travel guide)"
+                                uid=7_166 listitem level="1"
+                                  uid=7_167 generic
+                                  uid=7_168 generic
+                                    uid=6_85 link "Wikidata" description="wikidata:Special:Search/Chrome DevTools" url="https://www.wikidata.org/wiki/Special:Search/Chrome_DevTools"
+                                      uid=6_86 "Wikidata"
+                                    uid=6_87 " (linked database)"
+                                uid=7_169 listitem level="1"
+                                  uid=7_170 generic
+                                  uid=7_171 generic
+                                    uid=6_88 link "Wikispecies" description="wikispecies:Special:Search/Chrome DevTools" url="https://species.wikimedia.org/wiki/Special:Search/Chrome_DevTools"
+                                      uid=6_89 "Wikispecies"
+                                    uid=6_90 " (species directory)"
+                          uid=6_91 "Wikipedia does not have an article with this exact name."
+                          uid=6_92 " Please "
+                          uid=6_93 link "search for Chrome DevTools in Wikipedia" url="https://en.wikipedia.org/w/index.php?search=Chrome+DevTools&title=Special%3ASearch&fulltext=1"
+                            uid=6_94 "search for "
+                            uid=6_95 "Chrome DevTools"
+                            uid=6_96 " in Wikipedia"
+                          uid=6_97 " to check for alternative titles or spellings."
+                          uid=7_172 list
+                            uid=7_173 listitem level="1"
+                              uid=7_174 ListMarker "• "
+                                ignored
+                              uid=6_98 "You need to "
+                              uid=6_99 link "log in or create an account" url="https://en.wikipedia.org/w/index.php?title=Special:UserLogin&returnto=Chrome+DevTools"
+                                uid=6_100 "log in or create an account"
+                              uid=6_101 " and be "
+                              uid=6_102 link "autoconfirmed" description="Wikipedia:User access levels" url="https://en.wikipedia.org/wiki/Wikipedia:User_access_levels#Autoconfirmed_users"
+                                uid=6_103 "autoconfirmed"
+                              uid=6_104 " to create new articles. Alternatively, you can use the "
+                              uid=6_105 link "article wizard" description="Wikipedia:Article wizard" url="https://en.wikipedia.org/wiki/Wikipedia:Article_wizard"
+                                uid=6_106 "article wizard"
+                              uid=6_107 " to submit a draft for review, or "
+                              uid=6_108 link "request a new article" description="Wikipedia:Requested articles" url="https://en.wikipedia.org/wiki/Wikipedia:Requested_articles"
+                                uid=6_109 "request a new article"
+                              uid=6_110 "."
+                            uid=7_175 listitem level="1"
+                              uid=7_176 ListMarker "• "
+                                ignored
+                              uid=6_111 link "Search for "Chrome DevTools"" url="https://en.wikipedia.org/w/index.php?search=Chrome+DevTools&title=Special%3ASearch&fulltext=1&ns0=1"
+                                uid=6_112 "Search for ""
+                                uid=6_113 "Chrome DevTools"
+                                uid=6_114 """
+                              uid=6_115 " in existing articles."
+                            uid=7_177 listitem level="1"
+                              uid=7_178 ListMarker "• "
+                                ignored
+                              uid=6_116 link "Look for pages within Wikipedia that link to this title" description="Special:WhatLinksHere/Chrome DevTools" url="https://en.wikipedia.org/wiki/Special:WhatLinksHere/Chrome_DevTools"
+                                uid=6_117 "Look for pages within Wikipedia that link to this title"
+                              uid=6_118 "."
+                          uid=7_179 generic
+                            uid=7_180 separator orientation="horizontal"
+                            uid=7_181 paragraph
+                              uid=6_119 "Other reasons this message may be displayed:"
+                            uid=7_182 list
+                              uid=7_183 listitem level="1"
+                                uid=7_184 ListMarker "• "
+                                  ignored
+                                uid=6_120 "Titles on Wikipedia are "
+                                uid=6_121 link "case sensitive" description="Case sensitivity" url="https://en.wikipedia.org/wiki/Case_sensitivity"
+                                  uid=6_122 "case sensitive"
+                                uid=6_123 " except for the first character; please "
+                                uid=6_124 link "check alternative capitalizations" url="https://en.wikipedia.org/w/index.php?search=Chrome+DevTools&title=Special%3ASearch&fulltext=1"
+                                  uid=6_125 "check alternative capitalizations"
+                                uid=6_126 " and consider adding a "
+                                uid=6_127 link "redirect" description="Wikipedia:Redirect" url="https://en.wikipedia.org/wiki/Wikipedia:Redirect"
+                                  uid=6_128 "redirect"
+                                uid=6_129 " here to the correct title."
+                              uid=7_185 listitem level="1"
+                                uid=7_186 ListMarker "• "
+                                  ignored
+                                uid=6_130 "If the page has been deleted, "
+                                uid=6_131 link "check the deletion log" url="https://en.wikipedia.org/w/index.php?title=Special:Log/delete&page=Chrome_DevTools"
+                                  uid=6_132 "check the "
+                                  uid=6_133 "deletion log"
+                                uid=6_134 ", and see "
+                                uid=6_135 link "Why was the page I created deleted?" description="Wikipedia:Why was the page I created deleted?" url="https://en.wikipedia.org/wiki/Wikipedia:Why_was_the_page_I_created_deleted%3F"
+                                  uid=6_136 "Why was the page I created deleted?"
+          uid=7_187 ignored
+            uid=6_137 contentinfo
+              uid=7_188 list
+                uid=7_189 listitem level="1"
+                  uid=6_138 link "Privacy policy" url="https://foundation.wikimedia.org/wiki/Special:MyLanguage/Policy:Privacy_policy"
+                    uid=6_139 "Privacy policy"
+                uid=7_190 listitem level="1"
+                  uid=6_140 link "About Wikipedia" url="https://en.wikipedia.org/wiki/Wikipedia:About"
+                    uid=6_141 "About Wikipedia"
+                uid=7_191 listitem level="1"
+                  uid=6_142 link "Disclaimers" url="https://en.wikipedia.org/wiki/Wikipedia:General_disclaimer"
+                    uid=6_143 "Disclaimers"
+                uid=7_192 listitem level="1"
+                  uid=6_144 link "Contact Wikipedia" url="https://en.wikipedia.org/wiki/Wikipedia:Contact_us"
+                    uid=6_145 "Contact Wikipedia"
+                uid=7_193 listitem level="1"
+                  uid=6_146 link "Legal & safety contacts" url="https://foundation.wikimedia.org/wiki/Special:MyLanguage/Legal:Wikimedia_Foundation_Legal_and_Safety_Contact_Information"
+                    uid=6_147 "Legal & safety contacts"
+                uid=7_194 listitem level="1"
+                  uid=6_148 link "Code of Conduct" url="https://foundation.wikimedia.org/wiki/Special:MyLanguage/Policy:Universal_Code_of_Conduct"
+                    uid=6_149 "Code of Conduct"
+                uid=7_195 listitem level="1"
+                  uid=6_150 link "Developers" url="https://developer.wikimedia.org/"
+                    uid=6_151 "Developers"
+                uid=7_196 listitem level="1"
+                  uid=6_152 link "Statistics" url="https://stats.wikimedia.org/#/en.wikipedia.org"
+                    uid=6_153 "Statistics"
+                uid=7_197 listitem level="1"
+                  uid=6_154 link "Cookie statement" url="https://foundation.wikimedia.org/wiki/Special:MyLanguage/Policy:Cookie_statement"
+                    uid=6_155 "Cookie statement"
+                uid=7_198 listitem level="1"
+                  uid=6_156 link "Mobile view" url="https://en.wikipedia.org/w/index.php?title=Chrome_DevTools&mobileaction=toggle_view_mobile"
+                    uid=6_157 "Mobile view"
+              uid=7_199 list
+                uid=7_200 listitem level="1"
+                  uid=6_158 link "Wikimedia Foundation" url="https://www.wikimedia.org/"
+                    uid=7_201 generic
+                      uid=6_159 image "Wikimedia Foundation" url="https://en.wikipedia.org/static/images/footer/wikimedia-button.svg"
+                uid=7_202 listitem level="1"
+                  uid=6_160 link "Powered by MediaWiki" url="https://www.mediawiki.org/"
+                    uid=7_203 generic
+                      uid=6_161 image "Powered by MediaWiki" url="https://en.wikipedia.org/w/resources/assets/poweredby_mediawiki.svg"
+      uid=7_204 ignored
+      uid=7_205 ignored
+      uid=7_206 ignored
+      uid=7_207 generic
+        uid=7_208 list
+      uid=7_209 generic
+      uid=7_210 generic

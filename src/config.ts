@@ -3,8 +3,9 @@
 // directories it resolves (LOG_DIR, OUTPUT_DIR) — no other side effects.
 import { fileURLToPath } from "url";
 import { createRequire } from "module";
-import { resolve, dirname } from "path";
+import { resolve, dirname, sep } from "path";
 import { readFileSync, existsSync, mkdirSync } from "fs";
+import { withDevtoolsDefaults } from "./devtools.js";
 
 // Splits a command-line string on spaces, respecting "..."/'...' quoting so
 // paths like `--storage-state "C:/path with spaces/state.json"` survive.
@@ -44,7 +45,21 @@ export const SMART_WAIT_MS = num(process.env.PLAYGUARD_SMART_WAIT_MS, 1000);
 export const SMART_WAIT_MAX_RETRIES = num(process.env.PLAYGUARD_SMART_WAIT_MAX_RETRIES, 3);
 export const SMART_WAIT_MIN_REFS = num(process.env.PLAYGUARD_SMART_WAIT_MIN_REFS, 5);
 export const EVAL_COMPACT_THRESHOLD = num(process.env.PLAYGUARD_EVAL_COMPACT, 10000); // chars; 0 = off
-export const FIGMA_MCP_CMD = process.env.FIGMA_MCP_CMD; // undefined = Figma disabled
+export const FIGMA_MCP_CMD = process.env.FIGMA_MCP_CMD; // stdio upstream (Framelink)
+// Official Figma MCP over HTTP — the desktop app's server, http://127.0.0.1:3845/mcp.
+// No key: the Figma app's own login authorizes it. Wins over FIGMA_MCP_CMD when both are set.
+export const FIGMA_MCP_URL = process.env.FIGMA_MCP_URL || undefined;
+export const FIGMA_ENABLED = !!(FIGMA_MCP_URL || FIGMA_MCP_CMD);
+const figmaUrl = (() => { try { return FIGMA_MCP_URL ? new URL(FIGMA_MCP_URL) : undefined; } catch { return undefined; } })();
+// Set when FIGMA_MCP_URL is not a URL at all (e.g. "127.0.0.1:3845/mcp" without http://).
+// Also http(s) only ("localhost:3845/mcp" parses with scheme "localhost:"), and no user:pass@ —
+// fetch refuses URLs with credentials, so it could never connect.
+export const FIGMA_URL_INVALID = !!FIGMA_MCP_URL && (!figmaUrl || !/^https?:$/.test(figmaUrl.protocol) || !!(figmaUrl.username || figmaUrl.password));
+// For messages and logs: never echo credentials someone put in the URL.
+export const FIGMA_URL_SAFE = figmaUrl ? `${figmaUrl.protocol}//${figmaUrl.host}${figmaUrl.pathname}` : (FIGMA_MCP_URL ?? "");
+// Figma's remote server (mcp.figma.com) admits only clients from Figma's own catalog;
+// PlayGuard isn't one, so this setup is refused up front with what to do instead.
+export const FIGMA_REMOTE_REFUSED = !!figmaUrl && /(^|\.)figma\.com$/i.test(figmaUrl.hostname.replace(/\.$/, ""));
 export const FIGMA_CACHE_TTL = num(process.env.FIGMA_CACHE_TTL, 0); // ms; 0 = off
 export const FIGMA_SVG_REFS = process.env.FIGMA_SVG_REFS !== "false"; // default on: replace inline SVG with lightweight refs
 // Some Figma MCPs (e.g. Framelink figma-developer-mcp) pre-simplify to YAML/markdown text
@@ -161,4 +176,56 @@ export const [PW_CMD, PW_ARGS]: [string, string[]] = [rawCmd, codegenOff ? withC
 const figmaExtraArgs = process.env.FIGMA_MCP_ARGS ? splitArgs(process.env.FIGMA_MCP_ARGS) : [];
 export const [FIGMA_CMD, FIGMA_ARGS]: [string, string[]] = FIGMA_MCP_CMD
   ? (() => { const p = splitArgs(FIGMA_MCP_CMD); return [p[0], [...p.slice(1), ...figmaExtraArgs]] as [string, string[]]; })()
+  : ["", []];
+
+// Chrome DevTools MCP (chrome-devtools-mcp): opt-in upstream, e.g.
+// DEVTOOLS_MCP_CMD="npx -y chrome-devtools-mcp@latest". undefined = disabled.
+export const DEVTOOLS_MCP_CMD = process.env.DEVTOOLS_MCP_CMD;
+// false = pure passthrough: no response rewriting, no tools/list compaction.
+export const DEVTOOLS_OPTIMIZE = process.env.PLAYGUARD_DEVTOOLS_OPTIMIZE !== "false";
+export const DEVTOOLS_NETWORK_MAX = num(process.env.PLAYGUARD_DEVTOOLS_NETWORK_MAX, 30); // rows; 0 = off
+export const DEVTOOLS_BODY_MAX = num(process.env.PLAYGUARD_DEVTOOLS_BODY_MAX, 3000); // chars; 0 = off
+// tools/list waits this long for an optional upstream (Figma, DevTools) before listing
+// without it — a first `npx` download alone can take a minute. ms
+export const LIST_WAIT_MS = num(process.env.PLAYGUARD_LIST_WAIT_MS, 6000);
+
+// chrome-devtools-mcp resolves a relative filePath against its cwd (spawned in QA_DIR) and,
+// with a client that declares no MCP roots, lets file tools touch only the OS temp dir.
+// Allow the project and the artifact dir too — unless the user already configured paths,
+// in any spelling yargs accepts (--workspace, --filesystem-root=…, --allowUnrestrictedPaths).
+const DT_PATH_OPTS = new Set(["workspace", "filesystemRoot", "allowUnrestrictedPaths"]);
+export function withDevtoolsWorkspace(args: string[], roots: string[]): string[] {
+  const given = args.some(a => {
+    const m = /^--(?:no-)?([^=]+)/.exec(a);
+    return !!m && DT_PATH_OPTS.has(m[1].replace(/-([a-z])/g, (_, c: string) => c.toUpperCase()));
+  });
+  return given ? args : [...args, ...roots.flatMap(r => ["--workspace", r])];
+}
+// Documentation upstreams, both opt-in and both read-only: Shopify Dev MCP
+// (SHOPIFY_DEV_MCP_CMD="npx -y @shopify/dev-mcp@latest") and Context7
+// (CONTEXT7_MCP_CMD="npx -y @upstash/context7-mcp@latest"). undefined = disabled.
+export const SHOPIFY_DEV_MCP_CMD = process.env.SHOPIFY_DEV_MCP_CMD;
+export const CONTEXT7_MCP_CMD = process.env.CONTEXT7_MCP_CMD;
+// false = pure passthrough for both: no response rewriting, no tools/list compaction.
+export const DOCS_OPTIMIZE = process.env.PLAYGUARD_DOCS_OPTIMIZE !== "false";
+// On-disk cache of read-only doc lookups. seconds; 0 = off. Version-pinned Context7 ids keep 7x.
+export const DOCS_CACHE_TTL = num(process.env.PLAYGUARD_DOCS_CACHE_TTL, 86400);
+export const DOCS_CACHE_DIR = resolve(OUTPUT_DIR, ".cache", "docs");
+const cmdWithArgs = (cmd: string | undefined, extra: string | undefined): [string, string[]] => {
+  if (!cmd) return ["", []];
+  const p = splitArgs(cmd);
+  return [p[0], [...p.slice(1), ...(extra ? splitArgs(extra) : [])]];
+};
+export const [SHOPIFY_DEV_CMD, SHOPIFY_DEV_ARGS] = cmdWithArgs(SHOPIFY_DEV_MCP_CMD, process.env.SHOPIFY_DEV_MCP_ARGS);
+export const [CONTEXT7_CMD, CONTEXT7_ARGS] = cmdWithArgs(CONTEXT7_MCP_CMD, process.env.CONTEXT7_MCP_ARGS);
+
+const devtoolsExtraArgs = process.env.DEVTOOLS_MCP_ARGS ? splitArgs(process.env.DEVTOOLS_MCP_ARGS) : [];
+const projectAbs = resolve(PROJECT_ROOT);
+const dtRoots = QA_DIR.startsWith(projectAbs + sep) ? [projectAbs] : [projectAbs, QA_DIR];
+export const [DEVTOOLS_CMD, DEVTOOLS_ARGS]: [string, string[]] = DEVTOOLS_MCP_CMD
+  ? (() => {
+    const p = splitArgs(DEVTOOLS_MCP_CMD);
+    const args = [...p.slice(1), ...devtoolsExtraArgs];
+    return [p[0], process.env.PLAYGUARD_DEVTOOLS_DEFAULTS === "false" ? args : withDevtoolsWorkspace(withDevtoolsDefaults(args), dtRoots)] as [string, string[]];
+  })()
   : ["", []];

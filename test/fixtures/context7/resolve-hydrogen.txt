@@ -1,0 +1,36 @@
+Available Libraries:
+
+- Title: Hydrogen
+- Context7-compatible library ID: /shopify/hydrogen
+- Description: Shopify's stack for headless commerce, providing tools, utilities, and examples for building dynamic and performant commerce applications with Remix.
+- Code Snippets: 1667
+- Source Reputation: High
+- Benchmark Score: 63.07
+----------
+- Title: Shopify Hydrogen (DeepWiki)
+- Context7-compatible library ID: /websites/deepwiki_shopify_hydrogen
+- Description: Shopify Hydrogen is a React-based framework and toolset for building custom, dynamic, and performant headless e-commerce storefronts powered by Shopify.
+- Code Snippets: 760
+- Source Reputation: High
+- Benchmark Score: 57.75
+----------
+- Title: Shopify Hydrogen (Legacy)
+- Context7-compatible library ID: /websites/shopify_dev_storefronts_headless_legacy_hydrogen
+- Description: Documentation for Legacy Shopify Hydrogen (versions 2026-04 and earlier), a full-stack Remix/React Router storefront framework for building and deploying custom Shopify commerce storefronts on Oxygen.
+- Code Snippets: 426
+- Source Reputation: High
+- Benchmark Score: 46.36
+----------
+- Title: Shopify
+- Context7-compatible library ID: /websites/help_shopify_en_manual
+- Description: Shopify is a leading e-commerce platform that allows businesses to create online stores and sell products. It includes ShopifyQL.
+- Code Snippets: 18049
+- Source Reputation: High
+- Benchmark Score: 60.79
+----------
+- Title: Shopify CLI
+- Context7-compatible library ID: /shopify/cli
+- Description: The Shopify CLI is a command-line interface tool that allows developers to initialize, build, develop, and deploy Shopify apps, extensions, functions, and themes, as well as build and manage custom storefronts.
+- Code Snippets: 2519
+- Source Reputation: High
+- Benchmark Score: 70.92

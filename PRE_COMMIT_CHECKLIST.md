@@ -18,7 +18,7 @@ Run through this before every commit that touches `src/index.ts` or public behav
 
 Cross-check `README.md` against the actual code in `src/index.ts` — anything below can drift silently:
 
-- [ ] **Env var tables** (Playwright + Figma sections) — names, defaults, and descriptions match the `process.env.*` reads at the top of `src/index.ts`
+- [ ] **Env var tables** (Playwright, Figma, DevTools, Shopify Dev / Context7 sections) — names, defaults, and descriptions match the `process.env.*` reads at the top of `src/config.ts`
 - [ ] **Module list** (Figma Optimizer section, Modules 1–7) — matches what `optimizeFigmaResponse()` / `budgetTrimFigma()` actually do; module numbers still line up
 - [ ] **Architecture diagram / feature bullets** — still accurate if routing, recovery, or caching logic changed
 - [ ] **Project Structure** section — file tree and the `~N lines` comment on `src/index.ts` still roughly right

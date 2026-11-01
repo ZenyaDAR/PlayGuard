@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// PlayGuard analytics report: reads the NDJSON call logs and prints token savings per upstream.
 import { readdirSync, readFileSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
@@ -52,7 +53,8 @@ if (snaps.length) {
 const redirected = entries.filter(e => e.tool === "browser_take_screenshot" && e.redirected);
 const evalHits   = entries.filter(e => e.evalCacheHit);
 const evalAll    = entries.filter(e => e.tool === "browser_evaluate");
-const retried    = entries.filter(e => e.retried);
+// DevTools and docs-upstream retries are reported in their own sections below.
+const retried    = entries.filter(e => e.retried && !e.server);
 
 if (redirected.length || evalHits.length || retried.length) {
   console.log("── PlayGuard interceptions ───────────────────────────────");
@@ -282,6 +284,54 @@ if (figmaEntries.length) {
     console.log(fl);
     for (const row of fd) console.log(ff(row));
     console.log(fl);
+  }
+}
+
+// ── Chrome DevTools MCP ────────────────────────────────────────────────────
+// Reported on its own: raw/kept bytes there cover every rewritten response (snapshot,
+// network list, request detail, trace), not just snapshots like the section above.
+const dt = entries.filter(e => e.server === "devtools");
+if (dt.length) {
+  const count = f => dt.filter(f).length;
+  const rawB  = dt.reduce((s, e) => s + (e.rawBytes ?? 0), 0);
+  const keptB = dt.reduce((s, e) => s + (e.keptBytes ?? e.rawBytes ?? 0), 0);
+  console.log("\n── Chrome DevTools MCP ───────────────────────────────────");
+  console.log(`  Calls:       ${dt.length} total  (${count(e => e.err)} errors, ${count(e => e.raw)} raw:true)`);
+  if (rawB > 0) {
+    console.log(`  Tokens in:   ~${toTok(rawB).toLocaleString()}  →  out: ~${toTok(keptB).toLocaleString()}  (saved ~${toTok(rawB - keptB).toLocaleString()}, -${((rawB - keptB) / rawB * 100).toFixed(0)}%)`);
+  }
+  const snapsDt = dt.filter(e => e.tool === "take_snapshot");
+  if (snapsDt.length) console.log(`  Snapshots:   ${snapsDt.length}  (${count(e => e.tool === "take_snapshot" && e.cacheHit)} UNCHANGED, ${count(e => e.tool === "take_snapshot" && e.delta)} delta)`);
+  const parts = [
+    ["network lists summarized", count(e => e.summarized)],
+    ["request details trimmed", count(e => e.trimmed)],
+    ["screenshots → snapshot", count(e => e.redirected)],
+    ["error hints added", count(e => e.hinted)],
+    // Calls, not respawns: concurrent calls that shared one revive each count.
+    ["calls hit by a revival", count(e => e.retried || e.revived)],
+    ["Chrome restarts (upstream)", count(e => e.chromeRestarted)],
+  ].filter(([, n]) => n > 0);
+  for (const [label, n] of parts) console.log(`  ${label.padEnd(26)} ${n}`);
+}
+
+// ── Documentation upstreams ────────────────────────────────────────────────
+// An UNCHANGED repeat carries no rawBytes (nothing was fetched), so the per-tool byte totals
+// cover fetched and cache-served answers only; repeats show up in the call counts.
+for (const [server, title] of [["shopify-dev", "Shopify Dev MCP"], ["context7", "Context7"]]) {
+  const rows = entries.filter(e => e.server === server);
+  if (!rows.length) continue;
+  const count = f => rows.filter(f).length;
+  console.log(`\n── ${title} ${"─".repeat(Math.max(0, 54 - title.length))}`);
+  console.log(`  Calls:       ${rows.length} total  (${count(e => e.err)} errors, ${count(e => e.cached)} cache hits, ${count(e => e.repeat)} UNCHANGED repeats, ${count(e => e.raw)} raw:true)`);
+  const byTool = {};
+  for (const e of rows) (byTool[e.tool] ??= []).push(e);
+  for (const [tool, list] of Object.entries(byTool).sort((a, b) => b[1].length - a[1].length)) {
+    const fetched = list.filter(e => e.rawBytes);
+    const rawB = fetched.reduce((s, e) => s + e.rawBytes, 0);
+    const keptB = fetched.reduce((s, e) => s + (e.keptBytes ?? e.rawBytes), 0);
+    const pct = rawB ? ` ~${toTok(rawB).toLocaleString()} → ~${toTok(keptB).toLocaleString()} tokens (-${((rawB - keptB) / rawB * 100).toFixed(0)}%)` : "";
+    const skips = list.filter(e => e.parseSkip).length;
+    console.log(`  ${tool.padEnd(22)} ${String(list.length).padStart(4)} calls${pct}${skips ? `, ${skips} optimizer skips` : ""}`);
   }
 }
 

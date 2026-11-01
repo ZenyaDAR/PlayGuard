@@ -1,0 +1,25 @@
+## Validation Summary
+
+**Overall Status:** ❌ INVALID
+**Total Theme:** 2
+
+## Detailed Results
+
+### Them 1
+**Artifact ID:** artifact-c6a00769-c920-45f6-a560-247d68c34106
+**Revision:** 1
+*Use same ID & increment revision when retrying on an improvement of this artifact*
+
+**Status:** ✅ SUCCESS
+**Details:** Theme file snippets/price-badge.liquid passed all checks from Shopify's Theme Check.
+
+### Them 2
+**Artifact ID:** artifact-c6ef2d89-0eb2-4f46-9796-81782174958b
+**Revision:** 1
+*Use same ID & increment revision when retrying on an improvement of this artifact*
+
+**Status:** ❌ FAILED
+**Details:** Theme file snippets/broken-card.liquid failed to validate:
+
+ERROR: SyntaxError: expected "%}"
+

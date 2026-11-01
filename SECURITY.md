@@ -29,8 +29,8 @@ confirmed, a patch release will be published and the report credited
 
 ## Scope notes
 
-PlayGuard spawns child MCP processes (Playwright MCP, and optionally a Figma
-MCP) and forwards `FIGMA_*` environment variables to the Figma child process.
+PlayGuard spawns child MCP processes (Playwright MCP, and optionally Figma,
+Chrome DevTools, Shopify Dev and Context7 MCPs) and forwards `FIGMA_*` variables to the Figma child. Other upstreams get a filtered environment (their own settings plus system basics), never PlayGuard's other API keys.
 Treat `FIGMA_API_KEY` and any credentials passed via env vars as secrets —
 they are not logged, but they are held in process memory and passed to child
 process environments.

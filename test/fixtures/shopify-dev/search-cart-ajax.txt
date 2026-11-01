@@ -1,0 +1,72 @@
+[
+  {
+    "score": 0.47333335876464844,
+    "content": "Cart API reference The Cart API is used to interact with a cart during a customer's session. This guide shows how to use the Cart API to update cart line items, add cart attributes and notes, and generate shipping rates. All Ajax API requests should use locale-aware URLs to give visitors a consistent experience. Note: For simplicity, the code examples in this guide don't always use a callback. POST /{locale}/cart/add.​js Use the POST /{locale}/cart/add.js endpoint to add one or multiple variants to the cart. In the following example, quantity is the amount of the variant that you want to add and id is the variant ID of that variant. You can add multiple variants to the cart by appending more objects in the items array. Below is a simplified POST request using the fetch API. The formData object is built in JavaScript, so the Content-Type should be set to application/json in the headers object. The response is the JSON of the line items associated with the added variants. If an item is already in the cart, then quantity is equal to the new quantity for that item. Example request let formData = { 'items': [{ 'id': 36110175633573, 'quantity': 2 }] }; fetch(window.Shopify.routes.root + 'cart/add.js', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(formData) }) .then(response => { return response.json(); }) .catch((error) => { console.error('Error:', error); });",
+    "url": "https://shopify.dev/docs/api/ajax/reference/cart",
+    "title": "Cart API reference",
+    "domain": null
+  },
+  {
+    "score": 0.4545454680919647,
+    "content": "About the Shopify Ajax API The Ajax API provides a suite of lightweight REST API endpoints for development of Shopify themes. The Ajax API can only be used by themes that are hosted by Shopify. You can't use the Ajax API on a Shopify custom storefront. Tip: To request the HTML markup for theme sections using an AJAX request, use the Section Rendering API. Use cases Possible uses of the Ajax API include: Add products to the cart and update the cart item counter. Display related product recommendations. Suggest products and collections to visitors as they type in a search field. Refer to the Ajax API reference for a full list of available API endpoints. Making requests to the API The Ajax API accepts two types of HTTP requests: GET requests to read cart and some product data POST requests to update the cart for the current session For instance, to fetch the current contents of the cart, send a client-side request to the store's /cart.js endpoint. var cartContents = fetch(window.Shopify.routes.root + 'cart.js') .then(response => response.json()) .then(data => { return data }); Locale-aware URLs Stores can have dynamic URLs generated for them when they sell internationally or in multiple languages. When using the Ajax API, it's important to use dynamic, locale-aware URLs so that you can give visitors a consistent experience for the language and country that they've chosen. The global value window.Shopify.routes.root is available to use as a base when building locale-aware URLs in JavaScript. The global value will always end in a / character, so you can safely use simple string concatenation to build the full URLs.",
+    "url": "https://shopify.dev/docs/api/ajax",
+    "title": "About the Shopify Ajax API",
+    "domain": null
+  },
+  {
+    "score": 0.4159091114997864,
+    "content": "About the Shopify Ajax API The Ajax API provides a suite of lightweight REST API endpoints for development of Shopify themes. The Ajax API can only be used by themes that are hosted by Shopify. You can't use the Ajax API on a Shopify custom storefront. Tip: To request the HTML markup for theme sections using an AJAX request, use the Section Rendering API. Use cases Possible uses of the Ajax API include: Add products to the cart and update the cart item counter. Display related product recommendations. Suggest products and collections to visitors as they type in a search field. Refer to the Ajax API reference for a full list of available API endpoints. Making requests to the API The Ajax API accepts two types of HTTP requests: GET requests to read cart and some product data POST requests to update the cart for the current session For instance, to fetch the current contents of the cart, send a client-side request to the store's /cart.js endpoint. var cartContents = fetch(window.Shopify.routes.root + 'cart.js') .then(response => response.json()) .then(data => { return data }); Locale-aware URLs Stores can have dynamic URLs generated for them when they sell internationally or in multiple languages. When using the Ajax API, it's important to use dynamic, locale-aware URLs so that you can give visitors a consistent experience for the language and country that they've chosen. The global value window.Shopify.routes.root is available to use as a base when building locale-aware URLs in JavaScript. The global value will always end in a / character, so you can safely use simple string concatenation to build the full URLs.",
+    "url": "https://shopify.dev/docs/api/ajax",
+    "title": "About the Shopify Ajax API",
+    "domain": null
+  },
+  {
+    "score": 0.35549449920654297,
+    "content": "Shopify Ajax API reference Shopify’s Ajax API can be used in Shopify themes to carry out actions like adding items to the cart, and displaying suggested products without requiring any page refreshes from buyers. The Ajax API includes the following endpoints: Cart - Update cart line items, attributes, and notes. Product - Fetch information about any product in the catalog. Product Recommendations - Display recommended products on product pages. Predictive Search - Suggest products, collections, pages and articles to buyers as they type their search queries.",
+    "url": "https://shopify.dev/docs/api/ajax/reference",
+    "title": "Shopify Ajax API reference",
+    "domain": null
+  },
+  {
+    "score": 0.3454545736312866,
+    "content": "053]\", 2); formData.append(\"updates[794864233]\", 3); fetch(window.Shopify.routes.root + 'cart/update.js', { method: 'POST', body: formData }) .then(response => response.json()) .then(data => console.log(data)); The `/{locale}/cart/update.js` endpoint adds new line items to the cart if the `variant_id` provided doesn't match any line item already in the cart. However, if the `variant_id` matches multiple line items, then the first matching line item is updated. **Tip:** Use the `change.js` endpoint when changing line items that are already in the cart, and the `add.js` endpoint when adding new line items. You can remove items from the cart by setting the quantity to 0: ```js let updates = { 794864053: 0, 794864233: 0 }; fetch(window.Shopify.routes.root + 'cart/update.js', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ updates }) }) .then(response => { return response.json(); }) .catch((error) => { console.error('Error:', error); }); You can also submit an array of numbers to /{locale}/cart/update.js, provided the size of the array matches the number of line items in the cart. Each number in the array sets the quantity for the corresponding line item in the cart. For example, if you have 3 line items in the cart with quantities 1, 2, and 3, and you want to change those quantities to 3, 2, and 1, then you can use the following: fetch(window.Shopify.routes.root + 'cart/update.js', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ updates: [3, 2, 1] }) }) .then(response => response.json()) .then(data => console.log(data)); Update the cart note To update the cart note, you can make a POST request with a note character string: { note: 'This is a note about my order' }",
+    "url": "https://shopify.dev/docs/api/ajax/reference/cart",
+    "title": "Cart API reference",
+    "domain": null
+  },
+  {
+    "score": 0.31882354617118835,
+    "content": "March 4, 2025 [Cart AJAX API] Inventory error message updates DateMarch 4, 2025 FlagsNew SurfacesAPI We are updating the error messages in the AJAX API for cases where a client requests more inventory than is available. If no inventory of a variant is in the cart and the client requests more than is available, the error message will be: \"Only available quantity items were added to your cart.\" If all available inventory of a variant is already in the cart and the client requests more, the error message will be: \"The maximum quantity of this item is already in your cart.\" These changes will affect the add.js, change.js, and update.js endpoints.",
+    "url": "https://shopify.dev/changelog/posts/cart-ajax-api-inventory-error-message-updates",
+    "title": "[Cart AJAX API] Inventory error message updates - Shopify developer changelog",
+    "domain": null
+  },
+  {
+    "score": 0.2822115421295166,
+    "content": "type=\"number\" min=\"1\" v-bind=\"form.register('quantity', {value: quantity})\" @input=\"updateQuantity\" /> </label> <button v-bind=\"form.register('addToCart', {})\" :aria-disabled=\"!addable\" :aria-busy=\"form.pending.value\" @click=\"!addable && $event.preventDefault()\" > {{ addable ? 'Add to cart' : product.requiresSellingPlan ? 'Choose a subscription' : form.selectedVariant ? 'Sold out' : 'Select options' }} </button> <ul v-if=\"form.errors.userErrors.length > 0\" role=\"alert\"> <li v-for=\"(error, index) in form.errors.userErrors\" :key=\"index\"> {{ error.message }} </li> </ul> </form> </template> ``` In vanilla JavaScript, render the form on the server with method=\"post\", the cart endpoint /api/cart as its action, a hidden merchandiseId input with the selected variant's ID, a submit button named add-to-cart, an element with a data-price attribute, and an empty <ul role=\"alert\">. The form works before your script loads. After hydration, attachAddToCart() keeps the variant ID, price, and button text in sync with the store, and submits through the store. In Vue, pending is a ref, so read form.pending.value. The form uses the following pieces: register('merchandiseId', {}): A hidden input with the selected variant's ID. register('quantity', {defaultValue: 1}): The quantity input. Pass value instead of defaultValue to control the input yourself. register('addToCart', {}): The submit button's name and type. canAddToCart(): Returns true only when a variant is selected, it's available for",
+    "url": "https://shopify.dev/docs/storefronts/hydrogen/products",
+    "title": "Build product pages with variant selection",
+    "domain": "hydrogen"
+  },
+  {
+    "score": 0.27941176295280457,
+    "content": "Response { \"items\": [ { \"id\": 36110175633573, \"title\": \"Red Rain Coat - Small\", \"key\": \"794864229:03af7a8cb59a4c3c45595c76fa8cb53c\", \"price\": 12900, \"line_price\": 12900, \"quantity\": 2, \"sku\": null, \"grams\": 0, \"vendor\": \"Shopify\", \"properties\": {}, \"variant_id\": 794864229, \"gift_card\": false, \"url\": \"/products/red-rain-coat?variant=794864229\", \"featured_image\": { \"url\": \" \"aspect_ratio\": 1.0, \"alt\": \"Red rain coat with a hood\" }, \"image\": \" \"handle\": \"red-rain-coat\", \"requires_shipping\": true, \"product_title\": \"Red Rain Coat\", \"product_description\": \"A bright red rain coat for rainy days!\", \"product_type\": \"Coat\", \"properties\" : null, \"variant_title\": \"Red\", \"variant_options\": [\"Red\"], \"options_with_values\": [ { \"name\": \"Color\", \"value\": \"Red\" } ] } ] } Alternatively, you can use the FormData constructor and target the desired add-to-cart form: let addToCartForm = document.querySelector('form[action$=\"/cart/add\"]'); let formData = new FormData(addToCartForm); fetch(window.Shopify.routes.root + 'cart/add.js', { method: 'POST', body: formData }) .then(response => { return response.json(); }) .catch((error) => { console.error('Error:', error); });",
+    "url": "https://shopify.dev/docs/api/ajax/reference/cart",
+    "title": "Cart API reference",
+    "domain": null
+  },
+  {
+    "score": 0.24874143302440643,
+    "content": "POST /{locale}/cart/update.​js Use the POST /{locale}/cart/update.js endpoint to update the cart's line item quantities, note, or attributes. You can submit a serialized cart form, or submit separate updates to a cart's line items, note, or attributes.",
+    "url": "https://shopify.dev/docs/api/ajax/reference/cart",
+    "title": "Cart API reference",
+    "domain": null
+  },
+  {
+    "score": 0.24444444477558136,
+    "content": "Add a variant to the cart JavaScript // <form id=\"add-to-cart\" method=\"post\" action=\"/api/cart\"> // <input type=\"hidden\" name=\"merchandiseId\" value=\"gid://shopify/ProductVariant/1\"> // <button type=\"submit\" name=\"intent\" value=\"add\">Add to cart</button> // </form> const form = document.querySelector('#add-to-cart'); form.addEventListener('submit', (event) => { event.preventDefault(); cart.handleFormSubmit(event); }); React import {useCartForm} from './cart'; export function AddToCart({variantId}: {variantId: string}) { const {formProps, register} = useCartForm(); return ( <form {...formProps()}> <input type=\"hidden\" {...register('merchandiseId', {value: variantId})} /> <button type=\"submit\" {...register('add')}> Add to cart </button> </form> ); } Vue <script setup lang=\"ts\"> import {useCartForm} from './cart'; defineProps<{variantId: string}>(); const {formProps, register} = useCartForm(); </script> <template> <form v-bind=\"formProps()\"> <input type=\"hidden\" v-bind=\"register('merchandiseId', {value: variantId})\" /> <button type=\"submit\" v-bind=\"register('add')\">Add to cart</button> </form> </template> Use UI bindings If you're building with React or Vue, you can use bindings to wrap the core stores in providers, components, and framework-native state. For React, you pass a hook a selector function like (state) => state.data.totalQuantity, and the component re-renders only when that value changes. For Vue, you pass a composable a selector function, and it returns a ref (Vue's reactive value) that updates only when the selected value changes. Frameworks without bindings use the core stores directly. In the browser, load Shopify's storefront scripts, then call connect() so the store listens for Standard Actions cart events. Any script on the page can change the cart through these events.",
+    "url": "https://shopify.dev/docs/api/hydrogen/2026-10",
+    "title": "Hydrogen",
+    "domain": "hydrogen"
+  }
+]

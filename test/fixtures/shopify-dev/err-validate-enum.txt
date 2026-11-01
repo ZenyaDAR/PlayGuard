@@ -1,0 +1,34 @@
+MCP error -32602: Input validation error: Invalid arguments for tool validate: [
+  {
+    "code": "invalid_value",
+    "values": [
+      "admin",
+      "storefront-graphql",
+      "partner",
+      "customer",
+      "payments-apps",
+      "functions_cart_checkout_validation",
+      "functions_cart_transform",
+      "functions_delivery_customization",
+      "functions_discount",
+      "functions_fulfillment_constraints",
+      "functions_local_pickup_delivery_option_generator",
+      "functions_order_discounts",
+      "functions_order_routing_location_rule",
+      "functions_payment_customization",
+      "functions_pickup_point_delivery_option_generator",
+      "functions_product_discounts",
+      "functions_shipping_discounts",
+      "polaris-app-home",
+      "polaris-admin-extensions",
+      "polaris-checkout-extensions",
+      "polaris-customer-account-extensions",
+      "pos-ui",
+      "hydrogen"
+    ],
+    "path": [
+      "api"
+    ],
+    "message": "Invalid input"
+  }
+]

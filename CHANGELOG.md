@@ -1,5 +1,114 @@
 # Changelog
 
+## 0.10.0 — 2026-11-01
+
+### Added
+- **Official Figma MCP (desktop server) as an alternative to Framelink.** Set
+  `FIGMA_MCP_URL=http://127.0.0.1:3845/mcp` — no API key; the Figma desktop
+  app's login authorizes it (Dev or Full seat on a paid plan, Dev Mode →
+  "Enable desktop MCP server"). Its tools are routed over Streamable HTTP and
+  passed through whole (generated code is never sliced) and not cached (answers
+  follow the live selection). `playguard_compare_design` stays Framelink-only.
+  A closed desktop app gives a "not reachable, turn the server on" error; when
+  it comes up later its tools are registered and announced with
+  `tools/list_changed`. Only transport failures drop the connection (with one
+  retry), so one bad call never aborts the others. Figma's remote server
+  (`mcp.figma.com`) only admits clients from Figma's catalog, so that URL is
+  refused up front with the alternatives.
+- **`playguard_a11y_audit`.** Runs axe-core (bundled, 4.14) in the current
+  Playwright page and returns WCAG 2.0–2.2 A/AA violations grouped by rule, most
+  severe first: CSS selector, a short html excerpt and the first fix per
+  element, at most 5 elements per rule. Optional `selector` (audit part of the
+  page) and `tags` (replaces the default; an unknown tag is an error, not a
+  clean report). New dependency: `axe-core` (MPL-2.0).
+- **Chrome DevTools MCP as an optional third upstream.** Set
+  `DEVTOOLS_MCP_CMD` (e.g. `npx -y chrome-devtools-mcp@latest`) and
+  `DEVTOOLS_MCP_ARGS` (e.g. `--headless --isolated`); its tools are merged into
+  the tool list and routed to it. The upstream starts lazily, runs in its own
+  Chrome, and a failure there leaves Playwright and Figma working. PlayGuard
+  rewrites its responses (disable with `PLAYGUARD_DEVTOOLS_OPTIMIZE=false`, or
+  per call with `raw: true`):
+  - `list_network_requests` without paging/filter params and over
+    `PLAYGUARD_DEVTOOLS_NETWORK_MAX` (30) rows becomes a summary — main
+    document, failed and pending rows, per-host counts (Shopify store 34K →
+    ~1K chars, Wikipedia 7.6K → ~0.6K).
+  - `get_network_request` collapses noisy headers and cuts non-JSON bodies
+    over `PLAYGUARD_DEVTOOLS_BODY_MAX` (3000) chars (HTML documents −63–72%,
+    JSON bodies ~−20%, headers only).
+  - `take_snapshot` is compacted without losing an interactive uid (−3% to
+    −40%), a repeat of an unchanged page is one `UNCHANGED` line, and a small
+    change comes back as `ADDED`/`REMOVED` lines.
+  - Performance traces drop example questions and link targets (−13%).
+  - `tools/list` drops `$schema`, adds `raw`, and notes on the navigation
+    tools that this is a separate Chrome from `browser_*`.
+  - Five opaque upstream errors get a one-line hint with the next step.
+- DevTools launch defaults: `--no-usage-statistics`, `--no-performance-crux`,
+  `--no-page-id-routing` and `--workspace <project root>`, each skipped when
+  you pass the same option yourself; `PLAYGUARD_DEVTOOLS_DEFAULTS=false` skips
+  all of them. The upstream gets an allowlisted environment (no API keys) with
+  its own npm update check off, runs in `.playguard/.qa`, gets a 180 s timeout
+  for traces, Lighthouse and heap snapshots, and is respawned with the last URL
+  reopened if its process dies.
+- DevTools `take_screenshot` follows `PLAYGUARD_SCREENSHOTS`.
+- **Shopify Dev MCP and Context7 as optional documentation upstreams.** Set
+  `SHOPIFY_DEV_MCP_CMD` (e.g. `npx -y @shopify/dev-mcp@latest`) and/or
+  `CONTEXT7_MCP_CMD` (e.g. `npx -y @upstash/context7-mcp@latest`, Node ≥
+  20.18.1), plus optional `*_ARGS`. Lazy start, allowlisted environment
+  (`CONTEXT7_API_KEY` goes to Context7 only; Shopify telemetry off via
+  `OPT_OUT_INSTRUMENTATION=true`), failure isolated from the other upstreams.
+  Rewrites (disable with `PLAYGUARD_DOCS_OPTIMIZE=false`, or per call with
+  `raw: true`):
+  - `search_docs_chunks`: JSON → compact markdown, exact duplicates and
+    byte-identical per-API-version twins dropped (−19–20%, every URL kept).
+  - `learn_shopify_api`: escaped fences unescaped; always returned whole.
+  - Shopify `tools/list`: `feedback` hidden, `model`/`user_prompt` dropped,
+    `conversationId` optional and filled in by PlayGuard (26.6K → 21.3K).
+  - `resolve-library-id`: one line per library (−48–50%, every id kept).
+  - `query-docs`: shorter GitHub `Source:` URLs (−1–2%); code untouched.
+  - Context7 `tools/list` + instructions: 5.9K → 2.6K chars.
+- Disk cache for `search_docs_chunks`, `resolve-library-id` and `query-docs`
+  in `.playguard/.cache/docs/` (`PLAYGUARD_DOCS_CACHE_TTL`, 24 h; 7× for
+  version-pinned Context7 ids; errors never cached; atomic writes). An
+  identical call repeated in the same process gets a one-line `UNCHANGED` note
+  that says to call again with `raw: true` if the earlier answer is gone.
+- Calling a Shopify Dev or Context7 tool while that upstream failed to start
+  returns `[PlayGuard] … MCP is not running: <error>` with what to check,
+  instead of `Tool not found`.
+- `npm run analyze` reports DevTools, Shopify Dev and Context7 calls in their own sections;
+  `bench/smoke-devtools.mjs` checks the integration against the real
+  chrome-devtools-mcp.
+
+### Changed
+- **Breaking: Node.js 20.18.1 or newer is required** (was 18). Node 18 and 20
+  are past end of life, and Context7 needs 20.18.1 anyway. CI and publishing
+  run on Node 22.
+- `tools/list` waits at most `PLAYGUARD_LIST_WAIT_MS` (6000) for an optional
+  upstream (Figma, DevTools, Shopify Dev, Context7); all of them are listed in
+  parallel, so the worst case is one wait, not one per upstream. A slow one — a first `npx` download, an
+  initialize that never answers — is listed later through
+  `notifications/tools/list_changed` instead of holding up the whole list.
+
+### Fixed
+- Dependencies: `@modelcontextprotocol/sdk` 1.32.2 and `js-yaml` 5.5.0 (plus
+  their transitive updates) clear all 10 `npm audit` advisories. Most were in
+  the SDK's HTTP server stack, which PlayGuard (stdio only) never runs; the
+  js-yaml ones were parse-time DoS on snapshot YAML.
+- Screenshot redirect: a `browser_take_screenshot` call with `filename`,
+  `element`/`ref`/`target` or `fullPage` was answered with a snapshot,
+  silently dropping the file, element or full-page request. It now takes a
+  real screenshot, as if `visual: true` were passed.
+- A failed handshake with an upstream (Playwright, Figma, DevTools) now closes
+  its transport, so retries no longer leave orphaned child processes running.
+- README: the Figma examples used `npx @figma/mcp`; they now use Framelink
+  (`FIGMA_MCP_CMD=npx`, `FIGMA_MCP_ARGS=-y figma-developer-mcp --stdio`). The
+  Claude Code config location is `.mcp.json` in the project or
+  `claude mcp add --scope user`.
+
+### Docs
+- Repositioned PlayGuard as a proxy MCP (one server, several upstreams chosen
+  by env vars) in README, package description/keywords and code comments; added
+  an "Upstream MCPs at a glance" table.
+
 ## 0.9.0 — 2026-10-30
 
 ### Added

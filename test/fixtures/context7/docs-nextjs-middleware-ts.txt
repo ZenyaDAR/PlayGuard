@@ -1,0 +1,184 @@
+### Redirect with NextResponse.redirect in proxy
+
+Source: https://github.com/vercel/next.js/blob/canary/docs/01-app/02-guides/redirecting.mdx
+
+Redirects unauthenticated users to a login page for matched routes. Note that Proxy executes after redirects in next.config.js and before rendering.
+
+```typescript
+import { NextResponse, NextRequest } from 'next/server'
+import { authenticate } from 'auth-provider'
+
+export function proxy(request: NextRequest) {
+  const isAuthenticated = authenticate(request)
+
+  // If the user is authenticated, continue as normal
+  if (isAuthenticated) {
+    return NextResponse.next()
+  }
+
+  // Redirect to login page if not authenticated
+  return NextResponse.redirect(new URL('/login', request.url))
+}
+
+export const config = {
+  matcher: '/dashboard/:path*',
+}
+```
+
+```javascript
+import { NextResponse } from 'next/server'
+import { authenticate } from 'auth-provider'
+
+export function proxy(request) {
+  const isAuthenticated = authenticate(request)
+
+  // If the user is authenticated, continue as normal
+  if (isAuthenticated) {
+    return NextResponse.next()
+  }
+
+  // Redirect to login page if not authenticated
+  return NextResponse.redirect(new URL('/login', request.url))
+}
+
+export const config = {
+  matcher: '/dashboard/:path*',
+}
+```
+
+--------------------------------
+
+### Protected vs public routes in proxy (auth redirects)
+
+Source: https://github.com/vercel/next.js/blob/canary/docs/01-app/02-guides/authentication.mdx
+
+The authentication guide's proxy example defines protectedRoutes ('/dashboard') and publicRoutes ('/login', '/signup', '/') so that only protected routes redirect unauthenticated users to /login, while public routes like the marketing home page are left alone. Its matcher config excludes API, static, image, and .png paths from running the proxy, keeping auth redirects from blocking public assets. This is the core pattern for keeping public routes out of auth redirects in a mixed marketing/dashboard app.
+
+```typescript
+import { NextRequest, NextResponse } from 'next/server'
+import { decrypt } from '@/app/lib/session'
+import { cookies } from 'next/headers'
+
+// 1. Specify protected and public routes
+const protectedRoutes = ['/dashboard']
+const publicRoutes = ['/login', '/signup', '/']
+
+export default async function proxy(req: NextRequest) {
+  // 2. Check if the current route is protected or public
+  const path = req.nextUrl.pathname
+  const isProtectedRoute = protectedRoutes.includes(path)
+  const isPublicRoute = publicRoutes.includes(path)
+
+  // 3. Decrypt the session from the cookie
+  const cookie = (await cookies()).get('session')?.value
+  const session = await decrypt(cookie)
+
+  // 4. Redirect to /login if the user is not authenticated
+  if (isProtectedRoute && !session?.userId) {
+    return NextResponse.redirect(new URL('/login', req.nextUrl))
+  }
+
+  // 5. Redirect to /dashboard if the user is authenticated
+  if (
+    isPublicRoute &&
+    session?.userId &&
+    !req.nextUrl.pathname.startsWith('/dashboard')
+  ) {
+    return NextResponse.redirect(new URL('/dashboard', req.nextUrl))
+  }
+
+  return NextResponse.next()
+}
+
+// Routes Proxy should not run on
+export const config = {
+  matcher: ['/((?!api|_next/static|_next/image|.*\\.png$).*)'],
+}
+```
+
+--------------------------------
+
+### NextResponse.redirect in Proxy
+
+Source: https://github.com/vercel/next.js/blob/canary/docs/01-app/02-guides/redirecting.mdx
+
+Proxy allows you to run code before a request is completed. Then, based on the incoming request, redirect to a different URL using `NextResponse.redirect`. This is useful if you want to redirect users based on a condition (e.g. authentication, session management, etc) or have [a large number of redirects](#managing-redirects-at-scale-advanced).
+
+For example, to redirect the user to a `/login` page if they are not authenticated:
+
+> **Good to know**:
+>
+> - Proxy runs **after** `redirects` in `next.config.js` and **before** rendering.
+
+See the [Proxy](/docs/app/api-reference/file-conventions/proxy) documentation for more information.
+
+--------------------------------
+
+### Authenticate request in app/[team]/settings/layout.tsx
+
+Source: https://github.com/vercel/next.js/blob/canary/docs/01-app/02-guides/optimizing-the-static-shell.mdx
+
+Resolves cookies, headers, and user authentication before rendering the settings frame, redirecting unauthenticated users to `/login`.
+
+```tsx
+import { cookies, headers } from 'next/headers'
+import { redirect } from 'next/navigation'
+
+export default async function SettingsLayout({ children }) {
+  const cookieStore = await cookies()
+  const requestHeaders = await headers()
+  const user = await getCurrentUser({ cookieStore, requestHeaders })
+
+  if (!user) redirect('/login')
+
+  return <SettingsShell>{children}</SettingsShell>
+}
+```
+
+--------------------------------
+
+### Verify user session with verifySession in Data Access Layer
+
+Source: https://github.com/vercel/next.js/blob/canary/docs/01-app/02-guides/authentication.mdx
+
+Checks and decrypts the session cookie, redirecting unauthenticated users to '/login' while caching results per React render pass. Uses 'server-only' to ensure execution stays on the server.
+
+```tsx
+import 'server-only'
+
+import { cache } from 'react'
+import { cookies } from 'next/headers'
+import { redirect } from 'next/navigation'
+import { decrypt } from '@/app/lib/session'
+
+export const verifySession = cache(async () => {
+  const cookie = (await cookies()).get('session')?.value
+  const session = await decrypt(cookie)
+
+  if (!session?.userId) {
+    redirect('/login')
+  }
+
+  return { isAuth: true, userId: session.userId }
+})
+```
+
+```js
+import 'server-only'
+
+import { cache } from 'react'
+import { cookies } from 'next/headers'
+import { redirect } from 'next/navigation'
+import { decrypt } from '@/app/lib/session'
+
+export const verifySession = cache(async () => {
+  const cookie = (await cookies()).get('session')?.value
+  const session = await decrypt(cookie)
+
+  if (!session.userId) {
+    redirect('/login')
+  }
+
+  return { isAuth: true, userId: session.userId }
+})
+```

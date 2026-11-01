@@ -1,0 +1,36 @@
+Available Libraries:
+
+- Title: ox_lib
+- Context7-compatible library ID: /overextended/ox_lib
+- Description: ox_lib is a FiveM library providing reusable modules, methods, and UI elements for developing FiveM resources.
+- Code Snippets: 1039
+- Source Reputation: High
+- Benchmark Score: 66.34
+----------
+- Title: PDF-Lib
+- Context7-compatible library ID: /hopding/pdf-lib
+- Description: Create and modify PDF documents in any JavaScript environment
+- Code Snippets: 5941
+- Source Reputation: High
+- Benchmark Score: 75.04
+----------
+- Title: SpessaSynth Lib
+- Context7-compatible library ID: /spessasus/spessasynth_lib
+- Description: SpessaSynth Lib is a powerful TypeScript/JavaScript library for playing MIDI files with SoundFont2/SF3/DLS files in browsers using the WebAudioAPI, with support for audio file export and audio worklet synthesis.
+- Code Snippets: 437
+- Source Reputation: High
+- Benchmark Score: 65.44
+----------
+- Title: PDF Lib
+- Context7-compatible library ID: /cantoo-scribe/pdf-lib
+- Description: PDF Lib is a JavaScript library for creating and modifying PDF documents in any JavaScript runtime, including Node.js, browsers, Deno, and React Native.
+- Code Snippets: 5277
+- Source Reputation: Medium
+- Benchmark Score: 78.32
+----------
+- Title: alsa-lib
+- Context7-compatible library ID: /alsa-project/alsa-lib
+- Description: alsa-lib is a library that provides an interface to the Advanced Linux Sound Architecture (ALSA) in the Linux kernel and virtual devices using a plugin system.
+- Code Snippets: 2519
+- Source Reputation: High
+- Benchmark Score: 67.81

@@ -27,7 +27,7 @@ Install (every upstream on; remove a variable to drop that upstream):
 }
 ```
 
-Who it's for: developers whose agents do front-end work — browser QA, Figma-to-code, Shopify themes. Cursor reads the same JSON from `.cursor/mcp.json`; Codex takes the same command, args and env as TOML in `~/.codex/config.toml`:
+Who it's for: developers whose agents do front-end work — browser QA, Figma-to-code, Shopify themes. A typical setup runs Figma MCP and Playwright MCP together in one entry: the agent reads the design, builds it, then checks the live page against the Figma node with `playguard_compare_design`. Cursor reads the same JSON from `.cursor/mcp.json`; Codex takes the same command, args and env as TOML in `~/.codex/config.toml`:
 
 ```toml
 [mcp_servers.playguard]

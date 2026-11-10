@@ -18,6 +18,9 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # GitHub OIDC login to the MCP Registry
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -40,3 +43,17 @@ jobs:
         run: npm publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      # The registry reads mcpName from the npm package, so it runs only after a
+      # fresh npm publish, and waits until npm serves the new version.
+      - name: Publish to MCP Registry
+        if: steps.check.outputs.skip == 'false'
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          jq --arg v "$VERSION" '.version = $v | .packages[0].version = $v' server.json > server.tmp && mv server.tmp server.json
+          for i in $(seq 30); do
+            npm view "playguard@$VERSION" mcpName >/dev/null 2>&1 && break
+            sleep 10
+          done
+          curl -sL https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz | tar xz mcp-publisher
+          ./mcp-publisher login github-oidc
+          ./mcp-publisher publish

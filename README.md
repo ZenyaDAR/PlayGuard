@@ -1,5 +1,11 @@
 # PlayGuard
 
+[![npm version](https://img.shields.io/npm/v/playguard)](https://www.npmjs.com/package/playguard)
+[![real installs per week](https://img.shields.io/endpoint?url=https%3A%2F%2Fbadge.humanloads.dev%2Fbadge%2Fplayguard)](https://humanloads.dev/playguard)
+[![CI](https://github.com/ZenyaDAR/PlayGuard/actions/workflows/ci.yml/badge.svg)](https://github.com/ZenyaDAR/PlayGuard/actions/workflows/ci.yml)
+[![node](https://img.shields.io/node/v/playguard)](https://nodejs.org)
+[![license: MIT](https://img.shields.io/npm/l/playguard)](LICENSE)
+
 **A proxy MCP: one MCP server in your client config that runs several MCP servers under the hood, exposes all their tools through a single connection, and optimizes their responses.**
 
 You add `playguard` to your MCP client once. Which upstream MCPs it starts is decided by environment variables in that one config entry — an upstream without its variable is not started and its tools are not listed. Every response passes through PlayGuard on the way back, which adds:
